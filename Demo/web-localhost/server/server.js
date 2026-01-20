@@ -627,6 +627,74 @@ function ipv4Parts(ip) {
   return parts;
 }
 
+function ipv4ToInt(ip) {
+  const p = ipv4Parts(ip);
+  if (!p) return null;
+  return ((p[0] << 24) >>> 0) + (p[1] << 16) + (p[2] << 8) + p[3];
+}
+
+function maskFromPrefix(prefix) {
+  const raw = Number(prefix);
+  if (!Number.isFinite(raw)) return 0;
+  const p = Math.max(0, Math.min(32, Math.trunc(raw)));
+  if (p === 0) return 0;
+  return (0xffffffff << (32 - p)) >>> 0;
+}
+
+function netmaskToPrefix(mask) {
+  const m = ipv4ToInt(mask);
+  if (m == null) return null;
+  let prefix = 0;
+  let seenZero = false;
+  for (let i = 31; i >= 0; i--) {
+    const bit = (m >>> i) & 1;
+    if (bit === 1) {
+      if (seenZero) return null;
+      prefix += 1;
+    } else {
+      seenZero = true;
+    }
+  }
+  return prefix;
+}
+
+function subnetFromInt(n) {
+  const v = Number(n) >>> 0;
+  return `${(v >>> 24) & 255}.${(v >>> 16) & 255}.${(v >>> 8) & 255}.0/24`;
+}
+
+function expandNetworkTo24({ networkInt, prefix, preferIpInt, maxSubnets } = {}) {
+  const raw = Number(prefix);
+  const p = Number.isFinite(raw) ? Math.max(0, Math.min(32, Math.trunc(raw))) : 24;
+  const base = Number(networkInt) >>> 0;
+  const preferSubnetInt = preferIpInt != null ? (Number(preferIpInt) >>> 0) & 0xffffff00 : base & 0xffffff00;
+  if (p >= 24) return [subnetFromInt(preferSubnetInt)];
+
+  const total = 1 << (24 - p);
+  const maxRaw = Number(maxSubnets);
+  const limit = Number.isFinite(maxRaw) && maxRaw > 0 ? Math.min(total, Math.trunc(maxRaw)) : total;
+  if (limit <= 0) return [];
+
+  const preferIndex = Math.max(0, Math.min(total - 1, ((preferSubnetInt - base) >>> 8)));
+  const out = [];
+  const used = new Set();
+  const addIndex = (idx) => {
+    if (idx < 0 || idx >= total) return;
+    if (used.has(idx)) return;
+    used.add(idx);
+    out.push(subnetFromInt(base + (idx << 8)));
+  };
+
+  addIndex(preferIndex);
+  for (let step = 1; out.length < limit && (preferIndex - step >= 0 || preferIndex + step < total); step++) {
+    addIndex(preferIndex - step);
+    if (out.length >= limit) break;
+    addIndex(preferIndex + step);
+  }
+
+  return out;
+}
+
 function isPrivateIPv4(ip) {
   const p = ipv4Parts(ip);
   if (!p) return false;
@@ -641,6 +709,45 @@ function subnetFromIPv4(ip) {
   const p = ipv4Parts(ip);
   if (!p) return null;
   return `${p[0]}.${p[1]}.${p[2]}.0/24`;
+}
+
+function subnetsFromAddress(addr, { aggressive = false, maxSubnets } = {}) {
+  const ip = String(addr?.address || '').trim();
+  if (!ip || !ipv4Parts(ip)) return [];
+  const fallback = subnetFromIPv4(ip);
+  if (!aggressive) return fallback ? [fallback] : [];
+
+  const prefix = netmaskToPrefix(addr?.netmask);
+  if (!Number.isFinite(prefix) || prefix >= 24) return fallback ? [fallback] : [];
+  const ipInt = ipv4ToInt(ip);
+  const maskInt = ipv4ToInt(addr?.netmask);
+  if (ipInt == null || maskInt == null) return fallback ? [fallback] : [];
+  const network = (ipInt & maskInt) >>> 0;
+  return expandNetworkTo24({ networkInt: network, prefix, preferIpInt: ipInt, maxSubnets });
+}
+
+function parseSubnetList(raw, { maxSubnets } = {}) {
+  const text = String(raw || '').trim();
+  if (!text) return [];
+  const parts = text.split(/[\s,]+/).filter(Boolean);
+  const out = [];
+  for (const part of parts) {
+    const [ipRaw, prefixRaw] = part.split('/');
+    const ipInt = ipv4ToInt(ipRaw);
+    if (ipInt == null) continue;
+    const prefixNum = prefixRaw == null || prefixRaw === '' ? 24 : Number(prefixRaw);
+    if (!Number.isFinite(prefixNum)) continue;
+    const maskInt = maskFromPrefix(prefixNum);
+    const network = (ipInt & maskInt) >>> 0;
+    const subnets = expandNetworkTo24({
+      networkInt: network,
+      prefix: prefixNum,
+      preferIpInt: ipInt,
+      maxSubnets,
+    });
+    out.push(...subnets);
+  }
+  return out;
 }
 
 function getDefaultRouteIface() {
@@ -698,7 +805,12 @@ function findDefaultSubnet() {
   return candidates[0]?.subnet || null;
 }
 
-function findCandidateSubnets() {
+function findCandidateSubnets({ aggressive, maxSubnets } = {}) {
+  const aggressiveFlag = typeof aggressive === 'boolean' ? aggressive : envBool('RFID_SCAN_AGGRESSIVE', false);
+  const maxRaw = Number.isFinite(Number(maxSubnets))
+    ? Number(maxSubnets)
+    : envInt('RFID_SCAN_MAX_SUBNETS', aggressiveFlag ? 512 : 256);
+  const maxTotal = Number.isFinite(maxRaw) ? Math.max(1, Math.min(8192, Math.trunc(maxRaw))) : aggressiveFlag ? 512 : 256;
   const ifaces = os.networkInterfaces();
   const seen = new Set();
   const out = [];
@@ -707,6 +819,7 @@ function findCandidateSubnets() {
     const s = String(subnet || '').trim();
     if (!s) return;
     if (seen.has(s)) return;
+    if (out.length >= maxTotal) return;
     seen.add(s);
     out.push(s);
   };
@@ -722,7 +835,9 @@ function findCandidateSubnets() {
       const p = ipv4Parts(ip);
       if (!p) continue;
       if (p[0] === 169 && p[1] === 254) continue;
-      add(subnetFromIPv4(ip));
+      for (const subnet of subnetsFromAddress(addr, { aggressive: aggressiveFlag, maxSubnets: maxTotal })) {
+        add(subnet);
+      }
     }
   };
 
@@ -733,6 +848,9 @@ function findCandidateSubnets() {
     if (name === def) continue;
     addIface(name);
   }
+
+  const extraSubnets = parseSubnetList(envStr('RFID_SCAN_SUBNETS', ''), { maxSubnets: maxTotal });
+  for (const subnet of extraSubnets) add(subnet);
 
   return out;
 }
@@ -1045,13 +1163,18 @@ async function scanTcpPortsOnSubnet({ subnet, ports, timeoutMs = 250, concurrenc
   return { subnet, devices, portsTried: list };
 }
 
-async function scanTcpPort({ port, timeoutMs = 250, concurrency = 64 }) {
+async function scanTcpPort({ port, timeoutMs = 250, concurrency = 64, aggressive, maxSubnets } = {}) {
   const tMsRaw = Number(timeoutMs);
   const tMs = Number.isFinite(tMsRaw) ? Math.max(20, Math.min(2000, Math.trunc(tMsRaw))) : 250;
   const concRaw = Number(concurrency);
   const conc = Number.isFinite(concRaw) ? Math.max(1, Math.min(256, Math.trunc(concRaw))) : 64;
 
-  const subnets = findCandidateSubnets();
+  const aggressiveFlag = typeof aggressive === 'boolean' ? aggressive : envBool('RFID_SCAN_AGGRESSIVE', false);
+  const maxRaw = Number.isFinite(Number(maxSubnets))
+    ? Number(maxSubnets)
+    : envInt('RFID_SCAN_MAX_SUBNETS', aggressiveFlag ? 512 : 256);
+  const maxCount = Number.isFinite(maxRaw) ? Math.max(1, Math.min(8192, Math.trunc(maxRaw))) : aggressiveFlag ? 512 : 256;
+  const subnets = findCandidateSubnets({ aggressive: aggressiveFlag, maxSubnets: maxCount });
   if (!subnets.length) return { subnet: null, devices: [], subnetsTried: [] };
 
   for (const subnet of subnets) {
@@ -1063,7 +1186,7 @@ async function scanTcpPort({ port, timeoutMs = 250, concurrency = 64 }) {
   return { subnet: subnets[0] || null, devices: [], subnetsTried: subnets };
 }
 
-async function scanTcpPorts({ ports, timeoutMs = 250, concurrency = 64 }) {
+async function scanTcpPorts({ ports, timeoutMs = 250, concurrency = 64, aggressive, maxSubnets } = {}) {
   const list = normalizePorts(ports);
   if (!list.length) return { subnet: null, devices: [], portsTried: [] };
 
@@ -1072,7 +1195,12 @@ async function scanTcpPorts({ ports, timeoutMs = 250, concurrency = 64 }) {
   const concRaw = Number(concurrency);
   const conc = Number.isFinite(concRaw) ? Math.max(1, Math.min(256, Math.trunc(concRaw))) : 64;
 
-  const subnets = findCandidateSubnets();
+  const aggressiveFlag = typeof aggressive === 'boolean' ? aggressive : envBool('RFID_SCAN_AGGRESSIVE', false);
+  const maxRaw = Number.isFinite(Number(maxSubnets))
+    ? Number(maxSubnets)
+    : envInt('RFID_SCAN_MAX_SUBNETS', aggressiveFlag ? 512 : 256);
+  const maxCount = Number.isFinite(maxRaw) ? Math.max(1, Math.min(8192, Math.trunc(maxRaw))) : aggressiveFlag ? 512 : 256;
+  const subnets = findCandidateSubnets({ aggressive: aggressiveFlag, maxSubnets: maxCount });
   if (!subnets.length) return { subnet: null, devices: [], portsTried: list, subnetsTried: [] };
 
   for (const subnet of subnets) {
@@ -1801,9 +1929,15 @@ function main() {
         : Number.isFinite(envConcRaw)
           ? Math.max(1, Math.min(256, Math.trunc(envConcRaw)))
           : 64;
+      const aggressive =
+        typeof a?.aggressive !== 'undefined' || typeof a?.scan_aggressive !== 'undefined'
+          ? parseBool(a?.aggressive ?? a?.scan_aggressive, false)
+          : undefined;
+      const maxSubnetsRaw = Number(a?.maxSubnets ?? a?.max_subnets);
+      const maxSubnets = Number.isFinite(maxSubnetsRaw) ? Math.max(1, Math.min(8192, Math.trunc(maxSubnetsRaw))) : undefined;
       return list.length <= 1
-        ? await scanTcpPort({ port: list[0] || DEFAULT_TCP_PORTS[0], timeoutMs, concurrency })
-        : await scanTcpPorts({ ports: list, timeoutMs, concurrency });
+        ? await scanTcpPort({ port: list[0] || DEFAULT_TCP_PORTS[0], timeoutMs, concurrency, aggressive, maxSubnets })
+        : await scanTcpPorts({ ports: list, timeoutMs, concurrency, aggressive, maxSubnets });
     }
 
     if (c === 'ANTENNA_SCAN') {
@@ -2017,10 +2151,16 @@ function main() {
           : Number.isFinite(envConcRaw)
             ? Math.max(1, Math.min(256, Math.trunc(envConcRaw)))
             : 64;
+        const aggressive =
+          typeof body?.aggressive !== 'undefined' || typeof body?.scan_aggressive !== 'undefined'
+            ? parseBool(body?.aggressive ?? body?.scan_aggressive, false)
+            : undefined;
+        const maxSubnetsRaw = Number(body?.maxSubnets ?? body?.max_subnets);
+        const maxSubnets = Number.isFinite(maxSubnetsRaw) ? Math.max(1, Math.min(8192, Math.trunc(maxSubnetsRaw))) : undefined;
         const result =
           list.length <= 1
-            ? await scanTcpPort({ port: list[0] || DEFAULT_TCP_PORTS[0], timeoutMs, concurrency })
-            : await scanTcpPorts({ ports: list, timeoutMs, concurrency });
+            ? await scanTcpPort({ port: list[0] || DEFAULT_TCP_PORTS[0], timeoutMs, concurrency, aggressive, maxSubnets })
+            : await scanTcpPorts({ ports: list, timeoutMs, concurrency, aggressive, maxSubnets });
         return json(res, 200, { ok: true, result });
       }
 
@@ -2220,7 +2360,18 @@ function main() {
 
     const minIntervalMs = Math.max(500, envInt('RFID_AUTO_MAINTAIN_MS', 2500));
     const maxBackoffMs = Math.max(minIntervalMs, envInt('RFID_AUTO_MAINTAIN_MAX_MS', 30000));
-    const scanMinIntervalMs = Math.max(1500, envInt('RFID_AUTO_SCAN_MIN_MS', 5000));
+    const aggressiveScan = envBool('RFID_AUTO_SCAN_AGGRESSIVE', true);
+    const scanMinDefault = aggressiveScan ? 2000 : 5000;
+    const scanMinIntervalMs = Math.max(aggressiveScan ? 500 : 1500, envInt('RFID_AUTO_SCAN_MIN_MS', scanMinDefault));
+    const scanMaxSubnetsRaw = envInt(
+      'RFID_AUTO_SCAN_MAX_SUBNETS',
+      envInt('RFID_SCAN_MAX_SUBNETS', aggressiveScan ? 512 : 256),
+    );
+    const scanMaxSubnets = Number.isFinite(scanMaxSubnetsRaw)
+      ? Math.max(1, Math.min(8192, Math.trunc(scanMaxSubnetsRaw)))
+      : aggressiveScan
+        ? 512
+        : 256;
 
     const schedule = (ms) => {
       const t = setTimeout(() => tick().catch(() => {}), Math.max(0, Number(ms) || 0));
@@ -2348,8 +2499,20 @@ function main() {
                 const scanConcurrency = Number.isFinite(scanConcRaw) ? Math.max(1, Math.min(256, Math.trunc(scanConcRaw))) : 64;
                 const scan =
                   list.length <= 1
-                    ? await scanTcpPort({ port: list[0] || DEFAULT_TCP_PORTS[0], timeoutMs: scanTimeoutMs, concurrency: scanConcurrency })
-                    : await scanTcpPorts({ ports: list, timeoutMs: scanTimeoutMs, concurrency: scanConcurrency });
+                    ? await scanTcpPort({
+                      port: list[0] || DEFAULT_TCP_PORTS[0],
+                      timeoutMs: scanTimeoutMs,
+                      concurrency: scanConcurrency,
+                      aggressive: aggressiveScan,
+                      maxSubnets: scanMaxSubnets,
+                    })
+                    : await scanTcpPorts({
+                      ports: list,
+                      timeoutMs: scanTimeoutMs,
+                      concurrency: scanConcurrency,
+                      aggressive: aggressiveScan,
+                      maxSubnets: scanMaxSubnets,
+                    });
                 const devices = Array.isArray(scan?.devices) ? scan.devices : [];
                 if (!devices.length) throw new Error(`TCP scan: qurilma topilmadi (${scan?.subnet || 'subnet yo‘q'})`);
 
