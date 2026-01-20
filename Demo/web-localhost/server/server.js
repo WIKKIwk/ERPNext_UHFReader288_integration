@@ -93,8 +93,7 @@ class DedupeCache {
   cleanup(nowMs) {
     const cutoff = nowMs - this.ttlMs;
     for (const [key, ts] of this.map) {
-      if (ts >= cutoff) break;
-      this.map.delete(key);
+      if (ts < cutoff) this.map.delete(key);
     }
     if (this.maxEntries && this.map.size > this.maxEntries) {
       const over = this.map.size - this.maxEntries;
@@ -1115,6 +1114,7 @@ function main() {
   let inventoryRecoverPromise = null;
   let lastAutoRecoverAt = 0;
 
+  const maxQueueRaw = envInt('ERP_PUSH_MAX_QUEUE', 100000);
   const erpCfg = {
     baseUrl: erpEffective.baseUrl,
     endpoint: envStr('ERP_PUSH_ENDPOINT', '/api/method/rfidenter.rfidenter.api.ingest_tags'),
@@ -1123,10 +1123,10 @@ function main() {
     device: erpEffective.device,
     pushEnabled: erpEffective.pushEnabled,
     rpcEnabled: erpEffective.rpcEnabled,
-    batchMs: Math.max(0, envInt('ERP_PUSH_BATCH_MS', 50)),
+    batchMs: Math.max(0, envInt('ERP_PUSH_BATCH_MS', 20)),
     maxBatch: Math.max(1, envInt('ERP_PUSH_MAX_BATCH', 400)),
-    maxQueue: Math.max(200, envInt('ERP_PUSH_MAX_QUEUE', 20000)),
-    dedupeTtlMs: Math.max(0, envInt('ERP_PUSH_DEDUP_TTL_MS', 60000)),
+    maxQueue: maxQueueRaw <= 0 ? 0 : Math.max(1000, maxQueueRaw),
+    dedupeTtlMs: Math.max(0, envInt('ERP_PUSH_DEDUP_TTL_MS', 2000)),
     dedupeMaxEntries: Math.max(1000, envInt('ERP_PUSH_DEDUP_MAX', 200000)),
   };
   erpCfg.enabled = Boolean(erpCfg.baseUrl && erpCfg.pushEnabled);
