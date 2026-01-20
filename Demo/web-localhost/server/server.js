@@ -1217,6 +1217,7 @@ function main() {
     pollEndpoint: envStr('ERP_RPC_POLL_ENDPOINT', '/api/method/rfidenter.rfidenter.api.agent_poll'),
     replyEndpoint: envStr('ERP_RPC_REPLY_ENDPOINT', '/api/method/rfidenter.rfidenter.api.agent_reply'),
     pollMs: Math.max(150, envInt('ERP_RPC_POLL_MS', 800)),
+    pollWaitMs: Math.max(0, Math.min(15000, envInt('ERP_RPC_POLL_WAIT_MS', 1500))),
     max: Math.max(1, envInt('ERP_RPC_POLL_MAX', 5)),
   };
 
@@ -1646,7 +1647,9 @@ function main() {
   }
 
   async function rpcPollOnce() {
-    const msg = await erpPost(rpcCfg.pollEndpoint, { agent_id: agentCfg.agentId, max: rpcCfg.max, ts: Date.now() });
+    const payload = { agent_id: agentCfg.agentId, max: rpcCfg.max, ts: Date.now() };
+    if (rpcCfg.pollWaitMs > 0) payload.wait_ms = rpcCfg.pollWaitMs;
+    const msg = await erpPost(rpcCfg.pollEndpoint, payload);
     const commands = Array.isArray(msg?.commands) ? msg.commands : [];
     return commands;
   }
@@ -1746,8 +1749,11 @@ function main() {
           if (!commands.length) {
             failCount = 0;
             // Small idle sleep to reduce CPU/network
-            // eslint-disable-next-line no-await-in-loop
-            await sleep(rpcCfg.pollMs);
+            const idleSleepMs = rpcCfg.pollWaitMs > 0 ? 0 : rpcCfg.pollMs;
+            if (idleSleepMs > 0) {
+              // eslint-disable-next-line no-await-in-loop
+              await sleep(idleSleepMs);
+            }
             continue;
           }
 
