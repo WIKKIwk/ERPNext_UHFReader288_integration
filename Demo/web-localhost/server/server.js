@@ -283,10 +283,10 @@ class ErpPusher {
     }
 
     this.flushing = true;
-    const batch = this.queue.splice(0, this.cfg.maxBatch);
-    if (!batch.length) return;
-
+    let batch = [];
     try {
+      batch = this.queue.splice(0, this.cfg.maxBatch);
+      if (!batch.length) return;
       await this.#send(batch);
       this.failCount = 0;
       this.backoffUntil = 0;
