@@ -904,26 +904,82 @@ function normalizePorts(list) {
   return out;
 }
 
+function normalizeTcpTarget(raw, fallbackPort) {
+  if (!raw) return null;
+  let ip = '';
+  let port = fallbackPort;
+  if (typeof raw === 'string') {
+    const s = raw.trim();
+    if (!s) return null;
+    const parts = s.split(':');
+    if (parts.length === 1) {
+      ip = parts[0];
+    } else if (parts.length === 2) {
+      ip = parts[0];
+      const p = Number(parts[1]);
+      if (Number.isFinite(p)) port = Math.trunc(p);
+    } else {
+      return null;
+    }
+  } else if (typeof raw === 'object') {
+    ip = String(raw.ip || raw.host || '').trim();
+    const p = Number(raw.port ?? fallbackPort);
+    if (Number.isFinite(p)) port = Math.trunc(p);
+  }
+  if (!ip || !ipv4Parts(ip)) return null;
+  const portNum = Number(port);
+  if (!Number.isFinite(portNum) || portNum <= 0 || portNum > 65535) return null;
+  return { ip, port: Math.trunc(portNum) };
+}
+
 async function tryTcpConnect({ ip, port, timeoutMs }) {
+  const tMsRaw = Number(timeoutMs);
+  const tMs = Number.isFinite(tMsRaw) ? Math.max(20, Math.min(5000, Math.trunc(tMsRaw))) : 250;
   return await new Promise((resolve) => {
     const socket = new net.Socket();
     let done = false;
+    const timer = setTimeout(() => finish(false), tMs);
+    try {
+      timer.unref();
+    } catch {
+      // ignore
+    }
 
     function finish(result) {
       if (done) return;
       done = true;
+      clearTimeout(timer);
       try {
         socket.destroy();
       } catch {}
       resolve(result);
     }
 
-    socket.setTimeout(timeoutMs);
+    socket.setTimeout(tMs);
     socket.once('connect', () => finish(true));
     socket.once('timeout', () => finish(false));
     socket.once('error', () => finish(false));
     socket.connect(port, ip);
   });
+}
+
+async function pickReachableTcpTarget({ targets, timeoutMs, maxAttempts }) {
+  const list = Array.isArray(targets) ? targets : [];
+  if (!list.length) return null;
+  const tMsRaw = Number(timeoutMs);
+  const tMs = Number.isFinite(tMsRaw) ? Math.max(20, Math.min(2000, Math.trunc(tMsRaw))) : 250;
+  if (tMs <= 0) return null;
+  const maxRaw = Number(maxAttempts);
+  const max = Number.isFinite(maxRaw) ? Math.max(1, Math.min(32, Math.trunc(maxRaw))) : list.length;
+  const limit = Math.min(max, list.length);
+  for (let i = 0; i < limit; i++) {
+    const target = list[i];
+    if (!target || !target.ip || !target.port) continue;
+    // eslint-disable-next-line no-await-in-loop
+    const ok = await tryTcpConnect({ ip: target.ip, port: target.port, timeoutMs: tMs });
+    if (ok) return target;
+  }
+  return null;
 }
 
 async function scanTcpPortOnSubnet({ subnet, port, timeoutMs = 250, concurrency = 64 }) {
@@ -1420,6 +1476,62 @@ function main() {
       }
     }
     return getFileBridge();
+  }
+
+  function loadTcpCandidates() {
+    const cfg = getFileBridge();
+    const list = Array.isArray(cfg.tcpCandidates) ? cfg.tcpCandidates : [];
+    const ttlRaw = envInt('RFID_TCP_CANDIDATE_TTL_MS', 12 * 60 * 60 * 1000);
+    const ttlMs = Number.isFinite(ttlRaw) ? Math.max(0, Math.trunc(ttlRaw)) : 0;
+    const now = Date.now();
+    const out = [];
+    for (const item of list) {
+      const target = normalizeTcpTarget(item, item?.port ?? DEFAULT_TCP_PORTS[0]);
+      if (!target) continue;
+      const tsRaw = Number(item?.ts ?? 0);
+      const ts = Number.isFinite(tsRaw) ? Math.trunc(tsRaw) : 0;
+      if (ttlMs > 0 && ts && now - ts > ttlMs) continue;
+      out.push({ ...target, ts });
+    }
+    out.sort((a, b) => (b.ts || 0) - (a.ts || 0));
+    return out;
+  }
+
+  function rememberTcpCandidate(candidate) {
+    const target = normalizeTcpTarget(candidate, candidate?.port ?? DEFAULT_TCP_PORTS[0]);
+    if (!target) return;
+    const now = Date.now();
+    const maxRaw = envInt('RFID_TCP_CANDIDATE_MAX', 8);
+    const maxEntries = Number.isFinite(maxRaw) ? Math.max(1, Math.min(32, Math.trunc(maxRaw))) : 8;
+    const existing = loadTcpCandidates();
+    const next = [{ ...target, ts: now }, ...existing.filter((c) => c.ip !== target.ip || c.port !== target.port)];
+    updateLocalBridgeConfig({ tcpCandidates: next.slice(0, maxEntries) }, { broadcast: false });
+  }
+
+  function buildTcpCandidateList(connectArgs) {
+    const fallbackPort = Number.isFinite(connectArgs?.port) ? connectArgs.port : DEFAULT_TCP_PORTS[0];
+    const out = [];
+    const seen = new Set();
+    const add = (raw) => {
+      const target = normalizeTcpTarget(raw, fallbackPort);
+      if (!target) return;
+      const key = `${target.ip}:${target.port}`;
+      if (seen.has(key)) return;
+      seen.add(key);
+      out.push(target);
+    };
+
+    add(connectArgs);
+    add(lastConnectArgs);
+    for (const item of loadTcpCandidates()) add(item);
+
+    const hintRaw = envStr('RFID_TCP_HINTS', '').trim();
+    if (hintRaw) {
+      const parts = hintRaw.split(/[\\s,]+/).filter(Boolean);
+      for (const part of parts) add(part);
+    }
+
+    return out;
   }
 
   async function getBridgeStatusSafe() {
@@ -1932,6 +2044,7 @@ function main() {
           if (lastArgs) {
             lastConnectArgs = lastArgs;
             updateLocalBridgeConfig({ lastConnectArgs, autoConnect: true });
+            if (lastArgs.mode === 'tcp') rememberTcpCandidate(lastArgs);
           }
           return json(res, 200, { ok: true, result: { already: true, status } });
         }
@@ -1941,6 +2054,7 @@ function main() {
           await refreshLastConnectArgs();
           if (lastConnectArgs) {
             updateLocalBridgeConfig({ lastConnectArgs, autoConnect: true });
+            if (lastConnectArgs.mode === 'tcp') rememberTcpCandidate(lastConnectArgs);
           }
         } catch {
           // ignore
@@ -2180,7 +2294,35 @@ function main() {
               await bridge.request('CONNECT', connectArgs);
             } else {
               let directErr = null;
-              if (connectArgs.ip) {
+              const fastTimeoutRaw = envInt('RFID_FAST_CONNECT_TIMEOUT_MS', 300);
+              const fastTimeoutMs = Number.isFinite(fastTimeoutRaw)
+                ? Math.max(0, Math.min(2000, Math.trunc(fastTimeoutRaw)))
+                : 300;
+              const fastMaxRaw = envInt('RFID_FAST_CONNECT_MAX', 6);
+              const fastMax = Number.isFinite(fastMaxRaw) ? Math.max(1, Math.min(32, Math.trunc(fastMaxRaw))) : 6;
+
+              if (fastTimeoutMs > 0) {
+                const candidates = buildTcpCandidateList(connectArgs);
+                if (candidates.length) {
+                  const picked = await pickReachableTcpTarget({
+                    targets: candidates,
+                    timeoutMs: fastTimeoutMs,
+                    maxAttempts: fastMax,
+                  });
+                  if (picked) {
+                    const nextArgs = { ...connectArgs, ip: picked.ip, port: picked.port };
+                    try {
+                      await bridge.request('CONNECT', nextArgs);
+                    } catch (e) {
+                      directErr = e;
+                    }
+                  } else {
+                    directErr = new Error('TCP preflight: qurilma topilmadi.');
+                  }
+                } else {
+                  directErr = new Error('TCP/IP rejimida IP yo‘q.');
+                }
+              } else if (connectArgs.ip) {
                 try {
                   await bridge.request('CONNECT', connectArgs);
                 } catch (e) {
@@ -2236,6 +2378,7 @@ function main() {
             }
 
             updateLocalBridgeConfig({ lastConnectArgs: lastConnectArgs || connectArgs, autoConnect: true }, { broadcast: false });
+            if (lastConnectArgs?.mode === 'tcp') rememberTcpCandidate(lastConnectArgs);
             log('info', 'Auto-connect OK.');
           } catch (e) {
             failCount += 1;
