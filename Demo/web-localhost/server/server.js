@@ -1606,6 +1606,17 @@ function main() {
     return getFileBridge();
   }
 
+  function resolveDesiredInventory() {
+    const cfg = getFileBridge();
+    if (cfg && typeof cfg.desiredInventory === 'boolean') return cfg.desiredInventory;
+    return Boolean(desired.inventory);
+  }
+
+  function decorateStatus(status) {
+    const base = status && typeof status === 'object' ? status : {};
+    return { ...base, desiredInventory: resolveDesiredInventory() };
+  }
+
   function loadTcpCandidates() {
     const cfg = getFileBridge();
     const list = Array.isArray(cfg.tcpCandidates) ? cfg.tcpCandidates : [];
@@ -2051,17 +2062,19 @@ function main() {
 
   bridge.onEvent((evt) => {
     if (evt.type === 'bridge-event') {
+      let payload = evt.data;
       if (evt.event === 'STATUS') {
         try {
-          if (evt.data && typeof evt.data === 'object' && evt.data.lastConnectArgs) {
-            lastConnectArgs = evt.data.lastConnectArgs;
+          payload = decorateStatus(payload);
+          if (payload && typeof payload === 'object' && payload.lastConnectArgs) {
+            lastConnectArgs = payload.lastConnectArgs;
           }
         } catch {
           // ignore
         }
       }
-      sseBroadcast(evt.event, evt.data);
-      if (evt.event === 'TAG') erpPush.enqueue(evt.data);
+      sseBroadcast(evt.event, payload);
+      if (evt.event === 'TAG') erpPush.enqueue(payload);
       if ((evt.event === 'READ_OVER' || evt.event === 'TAG_FAIL') && shouldAutoRecover(evt.event)) {
         startInventoryWithRecovery({ reason: evt.event }).catch((e) => {
           try {
@@ -2106,7 +2119,7 @@ function main() {
       }
 
       if (req.method === 'GET' && urlObj.pathname === '/api/status') {
-        const status = await bridge.request('STATUS', {});
+        const status = decorateStatus(await bridge.request('STATUS', {}));
         return json(res, 200, { ok: true, status });
       }
 
