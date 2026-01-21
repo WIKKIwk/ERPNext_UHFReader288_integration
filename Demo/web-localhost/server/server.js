@@ -2373,6 +2373,7 @@ function main() {
 
     const minIntervalMs = Math.max(500, envInt('RFID_AUTO_MAINTAIN_MS', 2500));
     const maxBackoffMs = Math.max(minIntervalMs, envInt('RFID_AUTO_MAINTAIN_MAX_MS', 30000));
+    const invRetryMs = Math.max(200, envInt('RFID_AUTO_INV_RETRY_MS', 500));
     const aggressiveScan = envBool('RFID_AUTO_SCAN_AGGRESSIVE', true);
     const scanMinDefault = aggressiveScan ? 2000 : 5000;
     const scanMinIntervalMs = Math.max(aggressiveScan ? 500 : 1500, envInt('RFID_AUTO_SCAN_MIN_MS', scanMinDefault));
@@ -2566,7 +2567,8 @@ function main() {
         }
 
         // Inventory desired? ensure it's running.
-        if (desired.inventory && !inventoryStarted) {
+        const inventoryWanted = Boolean(desired.inventory);
+        if (inventoryWanted && !inventoryStarted) {
           try {
             await startInventoryWithRecovery({ reason: 'auto-maintain' });
             failCount = 0;
@@ -2577,7 +2579,7 @@ function main() {
           }
         }
 
-        schedule(minIntervalMs);
+        schedule(inventoryWanted && !inventoryStarted ? invRetryMs : minIntervalMs);
       } finally {
         inProgress = false;
       }
