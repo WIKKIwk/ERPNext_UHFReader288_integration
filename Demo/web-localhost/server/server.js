@@ -221,6 +221,7 @@ class ErpPusher {
     this.lastWarnAt = 0;
     this.flushing = false;
     this.dedupe = new DedupeCache(cfg.dedupeTtlMs, cfg.dedupeMaxEntries);
+    this.onSend = typeof cfg.onSend === 'function' ? cfg.onSend : null;
   }
 
   enabled() {
@@ -334,6 +335,13 @@ class ErpPusher {
     }
     const data = await res.json().catch(() => ({}));
     if (data && data.ok === false) throw new Error(String(data.error || 'ERP response not ok'));
+    if (this.onSend) {
+      try {
+        this.onSend(tags);
+      } catch {
+        // ignore
+      }
+    }
   }
 }
 
@@ -1297,6 +1305,8 @@ function main() {
   const desired = { connected: false, inventory: false };
   let inventoryRecoverPromise = null;
   let lastAutoRecoverAt = 0;
+  let lastErpSendAt = 0;
+  let lastHeartbeatWarnAt = 0;
 
   const maxQueueRaw = envInt('ERP_PUSH_MAX_QUEUE', 100000);
   const erpCfg = {
@@ -1312,6 +1322,9 @@ function main() {
     maxQueue: maxQueueRaw <= 0 ? 0 : Math.max(1000, maxQueueRaw),
     dedupeTtlMs: Math.max(0, envInt('ERP_PUSH_DEDUP_TTL_MS', 2000)),
     dedupeMaxEntries: Math.max(1000, envInt('ERP_PUSH_DEDUP_MAX', 200000)),
+    onSend: () => {
+      lastErpSendAt = Date.now();
+    },
   };
   erpCfg.enabled = Boolean(erpCfg.baseUrl && erpCfg.pushEnabled);
 
@@ -1396,6 +1409,65 @@ function main() {
     }
   }
 
+  const heartbeatIntervalRaw = envInt('ERP_PUSH_HEARTBEAT_MS', 3000);
+  const heartbeatIntervalMs = Number.isFinite(heartbeatIntervalRaw)
+    ? Math.max(500, Math.min(60000, Math.trunc(heartbeatIntervalRaw)))
+    : 3000;
+
+  async function sendErpHeartbeat({ reason = '' } = {}) {
+    if (!erpCfg.enabled) return false;
+    const now = Date.now();
+    const url = `${erpCfg.baseUrl}${erpCfg.endpoint}`;
+    const headers = { 'content-type': 'application/json' };
+
+    const auth = String(erpCfg.auth || '').trim();
+    if (auth) headers.authorization = auth.toLowerCase().startsWith('token ') ? auth : `token ${auth}`;
+
+    const secret = String(erpCfg.secret || '').trim();
+    if (secret) headers['x-rfidenter-token'] = secret;
+
+    const payload = { device: erpCfg.device, tags: [], ts: now, heartbeat: true };
+
+    try {
+      const res = await fetch(url, { method: 'POST', headers, body: JSON.stringify(payload) });
+      if (!res.ok) {
+        const text = await res.text().catch(() => '');
+        throw new Error(`HTTP ${res.status} ${res.statusText}${text ? `: ${text.slice(0, 200)}` : ''}`);
+      }
+      lastErpSendAt = now;
+      return true;
+    } catch (e) {
+      if (Date.now() - lastHeartbeatWarnAt > 5000) {
+        lastHeartbeatWarnAt = Date.now();
+        const msg = String(e && e.message ? e.message : e);
+        try {
+          sseBroadcast('log', { level: 'warn', message: `ERP heartbeat xatosi${reason ? ` (${reason})` : ''}: ${msg}` });
+        } catch {
+          // ignore
+        }
+      }
+      return false;
+    }
+  }
+
+  function startErpHeartbeatLoop() {
+    if (heartbeatIntervalMs <= 0) return;
+    const tick = async () => {
+      if (!erpCfg.enabled) return;
+      const now = Date.now();
+      if (lastErpSendAt && now - lastErpSendAt < heartbeatIntervalMs) return;
+      await sendErpHeartbeat({ reason: 'idle' });
+    };
+
+    tick().catch(() => {});
+    const t = setInterval(() => tick().catch(() => {}), heartbeatIntervalMs);
+    try {
+      t.unref();
+    } catch {
+      // ignore
+    }
+  }
+
   const rpcCfg = {
     enabled: Boolean(agentCfg.enabled),
     pollEndpoint: envStr('ERP_RPC_POLL_ENDPOINT', '/api/method/rfidenter.rfidenter.api.agent_poll'),
@@ -1407,6 +1479,9 @@ function main() {
 
   function applyErpEffective(next, { broadcast = false } = {}) {
     if (!next || typeof next !== 'object') return;
+    const prevBaseUrl = erpCfg.baseUrl;
+    const prevDevice = erpCfg.device;
+    const prevEnabled = erpCfg.enabled;
     erpEffective = next;
 
     erpCfg.baseUrl = String(next.baseUrl || '').trim();
@@ -1425,6 +1500,16 @@ function main() {
     );
 
     rpcCfg.enabled = Boolean(agentCfg.enabled);
+
+    if (
+      erpCfg.enabled &&
+      (!prevEnabled || prevBaseUrl !== erpCfg.baseUrl || prevDevice !== erpCfg.device)
+    ) {
+      lastErpSendAt = 0;
+      setTimeout(() => {
+        sendErpHeartbeat({ reason: 'config' }).catch(() => {});
+      }, 50);
+    }
 
     if (broadcast) {
       try {
@@ -2591,6 +2676,7 @@ function main() {
   server.listen(args.port, args.host, () => {
     console.log(`UHF localhost web UI: http://${args.host}:${args.port}`);
     startAgentHeartbeat();
+    startErpHeartbeatLoop();
     startRpcLoop();
     startAutoMaintainLoop();
   });
