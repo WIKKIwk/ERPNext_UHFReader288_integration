@@ -218,14 +218,30 @@ function setStatus(text, kind) {
   setPill($('statusPill'), text, kind);
 }
 
-function setInventory(desired, running) {
-  if (desired) {
-    const label = running ? 'Skan: Faol' : 'Skan: Qayta ulanmoqda';
-    const kind = running ? 'ok' : 'warn';
-    setPill($('invPill'), label, kind);
+function setInventory(desired, running, connected) {
+  if (!desired) {
+    invPendingSince = 0;
+    setPill($('invPill'), 'Skan: O‘chiq', '');
     return;
   }
-  setPill($('invPill'), 'Skan: O‘chiq', '');
+
+  if (connected === false) {
+    invPendingSince = 0;
+    setPill($('invPill'), 'Skan: Qayta ulanmoqda', 'warn');
+    return;
+  }
+
+  if (running) {
+    invPendingSince = 0;
+    setPill($('invPill'), 'Skan: Faol', 'ok');
+    return;
+  }
+
+  // Avoid flicker when inventory cycles quickly (READ_OVER auto-restart).
+  if (!invPendingSince) invPendingSince = Date.now();
+  const elapsed = Date.now() - invPendingSince;
+  const warn = elapsed >= 1500;
+  setPill($('invPill'), warn ? 'Skan: Qayta ulanmoqda' : 'Skan: Faol', warn ? 'warn' : 'ok');
 }
 
 function firstSub(main) {
@@ -436,6 +452,7 @@ let speedMarks = [];
 let tagViewRenderTimer = 0;
 let invOnceWaiter = null;
 let invDesired = false;
+let invPendingSince = 0;
 
 let currentStatus = {
   connected: false,
@@ -2167,7 +2184,7 @@ function applyStatus(st) {
 
   const invRunning = Boolean(currentStatus.inventoryStarted);
   const invActive = invDesired || invRunning;
-  setInventory(invDesired, invRunning);
+  setInventory(invDesired, invRunning, currentStatus.connected);
 
   if (invActive && !invStartedAt) {
     invStartedAt = Date.now();
