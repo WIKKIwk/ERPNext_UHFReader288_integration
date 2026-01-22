@@ -1308,6 +1308,28 @@ function main() {
   let lastErpSendAt = 0;
   let lastHeartbeatWarnAt = 0;
 
+  const aggressiveInventory = envBool('RFID_AGGRESSIVE_SCAN', true);
+  const minScanTimeUnits = aggressiveInventory ? 255 : 1;
+
+  function normalizeInvParams(raw) {
+    if (!raw || typeof raw !== 'object') return raw;
+    const next = { ...raw };
+    if (aggressiveInventory) {
+      const scanRaw = Number(next.scanTime);
+      const scan = Number.isFinite(scanRaw) ? Math.trunc(scanRaw) : minScanTimeUnits;
+      next.scanTime = Math.max(minScanTimeUnits, Math.min(255, scan));
+    }
+    return next;
+  }
+
+  function setLastInvParams(raw, { persist = false } = {}) {
+    if (!raw || typeof raw !== 'object') return null;
+    const next = normalizeInvParams(raw);
+    lastInvParams = next;
+    if (persist) updateLocalBridgeConfig({ lastInvParams: next }, { broadcast: false });
+    return next;
+  }
+
   const maxQueueRaw = envInt('ERP_PUSH_MAX_QUEUE', 100000);
   const erpCfg = {
     baseUrl: erpEffective.baseUrl,
@@ -1779,7 +1801,8 @@ function main() {
 
   function invScanTimeMs() {
     const raw = Number(lastInvParams?.scanTime ?? 20);
-    const st = Number.isFinite(raw) ? Math.max(0, Math.min(255, Math.trunc(raw))) : 20;
+    const fallback = aggressiveInventory ? minScanTimeUnits : 20;
+    const st = Number.isFinite(raw) ? Math.max(minScanTimeUnits, Math.min(255, Math.trunc(raw))) : fallback;
     // SDK uses 100ms units (UI shows x100ms).
     return Math.max(50, st * 100);
   }
@@ -1790,12 +1813,16 @@ function main() {
     const now = Date.now();
 
     const scanMs = invScanTimeMs();
-    // READ_OVER is expected (scan time ended). Restart fast to keep inventory continuous,
-    // otherwise scanTime=1 (0.1s) would stop and stay stopped.
+    // READ_OVER is expected (scan time ended). Restart fast to keep inventory continuous.
+    const reasonKey = String(reason || '');
     const minMs =
-      String(reason || '') === 'READ_OVER'
-        ? Math.max(50, Math.min(2000, scanMs - 20))
-        : Math.max(300, Math.min(5000, Math.max(1000, scanMs)));
+      reasonKey === 'READ_OVER'
+        ? aggressiveInventory
+          ? 0
+          : Math.max(50, Math.min(2000, scanMs - 20))
+        : aggressiveInventory
+          ? 100
+          : Math.max(300, Math.min(5000, Math.max(1000, scanMs)));
 
     if (now - lastAutoRecoverAt < minMs) return false;
     lastAutoRecoverAt = now;
@@ -2053,9 +2080,8 @@ function main() {
     }
 
     if (c === 'SET_INV_PARAM') {
-      lastInvParams = a;
-      updateLocalBridgeConfig({ lastInvParams: a });
-      return await bridge.request('SET_INV_PARAM', a);
+      const nextInvParams = setLastInvParams(a, { persist: true }) || a;
+      return await bridge.request('SET_INV_PARAM', nextInvParams);
     }
 
     if (c === 'START_READ') {
@@ -2320,9 +2346,8 @@ function main() {
 
       if (req.method === 'POST' && urlObj.pathname === '/api/inventory/params') {
         const body = await readJsonBody(req);
-        lastInvParams = body;
-        updateLocalBridgeConfig({ lastInvParams: body });
-        const result = await bridge.request('SET_INV_PARAM', body);
+        const nextInvParams = setLastInvParams(body, { persist: true }) || body;
+        const result = await bridge.request('SET_INV_PARAM', nextInvParams);
         return json(res, 200, { ok: true, result });
       }
 
@@ -2458,17 +2483,17 @@ function main() {
 
     const minIntervalMs = Math.max(500, envInt('RFID_AUTO_MAINTAIN_MS', 2500));
     const maxBackoffMs = Math.max(minIntervalMs, envInt('RFID_AUTO_MAINTAIN_MAX_MS', 30000));
-    const invRetryMs = Math.max(200, envInt('RFID_AUTO_INV_RETRY_MS', 500));
-    const aggressiveScan = envBool('RFID_AUTO_SCAN_AGGRESSIVE', true);
-    const scanMinDefault = aggressiveScan ? 2000 : 5000;
-    const scanMinIntervalMs = Math.max(aggressiveScan ? 500 : 1500, envInt('RFID_AUTO_SCAN_MIN_MS', scanMinDefault));
+    const invRetryMs = Math.max(50, envInt('RFID_AUTO_INV_RETRY_MS', aggressiveInventory ? 120 : 500));
+    const aggressiveNetworkScan = envBool('RFID_AUTO_SCAN_AGGRESSIVE', true);
+    const scanMinDefault = aggressiveNetworkScan ? 2000 : 5000;
+    const scanMinIntervalMs = Math.max(aggressiveNetworkScan ? 500 : 1500, envInt('RFID_AUTO_SCAN_MIN_MS', scanMinDefault));
     const scanMaxSubnetsRaw = envInt(
       'RFID_AUTO_SCAN_MAX_SUBNETS',
-      envInt('RFID_SCAN_MAX_SUBNETS', aggressiveScan ? 512 : 256),
+      envInt('RFID_SCAN_MAX_SUBNETS', aggressiveNetworkScan ? 512 : 256),
     );
     const scanMaxSubnets = Number.isFinite(scanMaxSubnetsRaw)
       ? Math.max(1, Math.min(8192, Math.trunc(scanMaxSubnetsRaw)))
-      : aggressiveScan
+      : aggressiveNetworkScan
         ? 512
         : 256;
 
@@ -2495,7 +2520,8 @@ function main() {
       try {
         const cfg = getFileBridge();
         const rawConnectArgs = cfg && typeof cfg.lastConnectArgs === 'object' ? cfg.lastConnectArgs : null;
-        const invParams = cfg && typeof cfg.lastInvParams === 'object' ? cfg.lastInvParams : null;
+        const invParamsRaw = cfg && typeof cfg.lastInvParams === 'object' ? cfg.lastInvParams : null;
+        const invParams = normalizeInvParams(invParamsRaw);
 
         const connectArgs = rawConnectArgs ? normalizeConnectArgs(rawConnectArgs) : null;
 
@@ -2508,7 +2534,7 @@ function main() {
         if (!initDone) {
           if (autoConnect && connectArgs) desired.connected = true;
           if (autoConnect && connectArgs && autoInventory && desiredInventory) desired.inventory = true;
-          if (invParams) lastInvParams = invParams;
+          if (invParams) setLastInvParams(invParams);
           initDone = true;
         } else {
           if (invParams) lastInvParams = invParams;
@@ -2602,14 +2628,14 @@ function main() {
                       port: list[0] || DEFAULT_TCP_PORTS[0],
                       timeoutMs: scanTimeoutMs,
                       concurrency: scanConcurrency,
-                      aggressive: aggressiveScan,
+                      aggressive: aggressiveNetworkScan,
                       maxSubnets: scanMaxSubnets,
                     })
                     : await scanTcpPorts({
                       ports: list,
                       timeoutMs: scanTimeoutMs,
                       concurrency: scanConcurrency,
-                      aggressive: aggressiveScan,
+                      aggressive: aggressiveNetworkScan,
                       maxSubnets: scanMaxSubnets,
                     });
                 const devices = Array.isArray(scan?.devices) ? scan.devices : [];

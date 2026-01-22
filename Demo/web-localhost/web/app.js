@@ -2316,7 +2316,7 @@ function bind() {
         scheduleTagViewRender();
       }
       if (id === 'antennaMask') syncAntennaChecksFromMask();
-      if (id === 'scanTime') clampIntField('scanTime', { min: 1, max: 255, fallback: 20 });
+      if (id === 'scanTime') clampIntField('scanTime', { min: 1, max: 255, fallback: 255 });
       if (id === 'beepEnabled') updateBeepToggleUi();
       if (id === 'minfre') syncRegionConstraints({ source: 'min' });
       if (id === 'maxfre') syncRegionConstraints({ source: 'max' });
@@ -3683,7 +3683,7 @@ async function init() {
   }
   updateConnUi();
   updateInvTypeUi();
-  clampIntField('scanTime', { min: 1, max: 255, fallback: 20, quiet: true });
+  clampIntField('scanTime', { min: 1, max: 255, fallback: 255, quiet: true });
   const fromHash = parseHash();
   const initialMain = fromHash?.main || activeMain;
   const initialSub = fromHash?.sub || activeSubs[initialMain] || DEFAULT_SUBS[initialMain] || firstSub(initialMain);
