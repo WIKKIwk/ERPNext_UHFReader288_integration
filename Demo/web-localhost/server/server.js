@@ -5,6 +5,7 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const net = require('net');
+const crypto = require('crypto');
 const { spawn, spawnSync } = require('child_process');
 const { URL } = require('url');
 
@@ -45,6 +46,27 @@ function normalizeHttpUrl(raw) {
   if (!s) return '';
   if (!/^https?:\/\//i.test(s)) s = `http://${s}`;
   return normalizeBaseUrl(s);
+}
+
+function computeAgentUid() {
+  try {
+    const ifaces = os.networkInterfaces();
+    const macs = [];
+    for (const list of Object.values(ifaces || {})) {
+      if (!Array.isArray(list)) continue;
+      for (const info of list) {
+        if (!info || info.internal) continue;
+        const mac = String(info.mac || '').toLowerCase();
+        if (!mac || mac === '00:00:00:00:00:00') continue;
+        macs.push(mac);
+      }
+    }
+    macs.sort();
+    const seed = macs.length ? macs.join(',') : os.hostname();
+    return crypto.createHash('sha1').update(seed).digest('hex').slice(0, 12);
+  } catch {
+    return crypto.createHash('sha1').update(os.hostname()).digest('hex').slice(0, 12);
+  }
 }
 
 function normalizeSerialPath(value) {
@@ -1284,6 +1306,12 @@ function main() {
     const defaultAgentId = baseDevice.toLowerCase().startsWith('uhf-') ? baseDevice : `uhf-${baseDevice}`;
     const agentId = envAgentId || fileAgentId || defaultAgentId;
 
+    const envAgentUid = overrideEnv
+      ? ''
+      : String(envStr('ERP_AGENT_UID', envStr('RFID_AGENT_UID', '')) || '').trim();
+    const fileAgentUid = String(fileErp.agentUid || fileErp.agent_uid || '').trim();
+    const agentUid = envAgentUid || fileAgentUid || computeAgentUid();
+
     const pushEnabled = overrideEnv ? fileErp.pushEnabled !== false : envBool('ERP_PUSH_ENABLED', fileErp.pushEnabled !== false);
     const rpcEnabled = overrideEnv ? fileErp.rpcEnabled !== false : envBool('ERP_RPC_ENABLED', fileErp.rpcEnabled !== false);
 
@@ -1292,12 +1320,13 @@ function main() {
       auth: envAuth ? 'env' : fileAuth ? 'file' : '',
       device: envDevice ? 'env' : fileDevice ? 'file' : 'default',
       agentId: envAgentId ? 'env' : fileAgentId ? 'file' : 'default',
+      agentUid: envAgentUid ? 'env' : fileAgentUid ? 'file' : 'default',
       pushEnabled: overrideEnv ? 'file' : process.env.ERP_PUSH_ENABLED ? 'env' : 'file',
       rpcEnabled: overrideEnv ? 'file' : process.env.ERP_RPC_ENABLED ? 'env' : 'file',
       overrideEnv: overrideEnv ? 'file' : '',
     };
 
-    return { baseUrl, auth, device, agentId, pushEnabled, rpcEnabled, sources, overrideEnv, activeProfile };
+    return { baseUrl, auth, device, agentId, agentUid, pushEnabled, rpcEnabled, sources, overrideEnv, activeProfile };
   };
 
   let erpEffective = computeEffectiveErp();
@@ -1367,6 +1396,7 @@ function main() {
     secret: erpCfg.secret,
     device: erpCfg.device,
     agentId: erpEffective.agentId,
+    agentUid: erpEffective.agentUid,
     intervalMs: Math.max(2000, envInt('ERP_AGENT_INTERVAL_MS', 10000)),
     version: envStr('ERP_AGENT_VERSION', 'rfid-web-localhost'),
   };
@@ -1388,6 +1418,7 @@ function main() {
 
     const payload = {
       agent_id: agentCfg.agentId,
+      agent_uid: agentCfg.agentUid,
       device: agentCfg.device,
       ui_urls: buildUiUrls({ host: args.host, port: args.port }),
       ui_host: args.host,
@@ -1520,6 +1551,7 @@ function main() {
     agentCfg.auth = erpCfg.auth;
     agentCfg.device = erpCfg.device;
     agentCfg.agentId = String(next.agentId || '').trim() || erpCfg.device;
+    agentCfg.agentUid = String(next.agentUid || '').trim() || computeAgentUid();
     agentCfg.enabled = Boolean(
       agentCfg.baseUrl && (String(agentCfg.auth || '').trim() || String(agentCfg.secret || '').trim()) && erpCfg.rpcEnabled,
     );
@@ -1593,6 +1625,7 @@ function main() {
       cfg.auth !== erpCfg.auth ||
       cfg.device !== erpCfg.device ||
       cfg.agentId !== agentCfg.agentId ||
+      cfg.agentUid !== agentCfg.agentUid ||
       Boolean(cfg.pushEnabled) !== Boolean(erpCfg.pushEnabled) ||
       Boolean(cfg.rpcEnabled) !== Boolean(erpCfg.rpcEnabled)
     ) {
@@ -2013,7 +2046,7 @@ function main() {
   }
 
   async function rpcPollOnce() {
-    const payload = { agent_id: agentCfg.agentId, max: rpcCfg.max, ts: Date.now() };
+    const payload = { agent_id: agentCfg.agentId, agent_uid: agentCfg.agentUid, kind: 'uhf', max: rpcCfg.max, ts: Date.now() };
     if (rpcCfg.pollWaitMs > 0) payload.wait_ms = rpcCfg.pollWaitMs;
     const msg = await erpPost(rpcCfg.pollEndpoint, payload);
     const commands = Array.isArray(msg?.commands) ? msg.commands : [];
@@ -2023,6 +2056,8 @@ function main() {
   async function rpcReply({ requestId, ok, result, error }) {
     await erpPost(rpcCfg.replyEndpoint, {
       agent_id: agentCfg.agentId,
+      agent_uid: agentCfg.agentUid,
+      kind: 'uhf',
       request_id: requestId,
       ok: Boolean(ok),
       result: ok ? result : null,
