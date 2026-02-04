@@ -1280,7 +1280,9 @@ function main() {
 
     const envAgentId = overrideEnv ? '' : String(envStr('ERP_AGENT_ID', '') || '').trim();
     const fileAgentId = String(fileErp.agentId || '').trim();
-    const agentId = envAgentId || fileAgentId || device;
+    const baseDevice = device || os.hostname();
+    const defaultAgentId = baseDevice.toLowerCase().startsWith('uhf-') ? baseDevice : `uhf-${baseDevice}`;
+    const agentId = envAgentId || fileAgentId || defaultAgentId;
 
     const pushEnabled = overrideEnv ? fileErp.pushEnabled !== false : envBool('ERP_PUSH_ENABLED', fileErp.pushEnabled !== false);
     const rpcEnabled = overrideEnv ? fileErp.rpcEnabled !== false : envBool('ERP_RPC_ENABLED', fileErp.rpcEnabled !== false);
@@ -1393,6 +1395,7 @@ function main() {
       platform: process.platform,
       version: agentCfg.version,
       pid: process.pid,
+      kind: 'uhf',
       ts: Date.now(),
     };
 
