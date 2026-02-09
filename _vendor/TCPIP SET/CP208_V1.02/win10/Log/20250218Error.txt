@@ -1,0 +1,8 @@
+Message: 文件“dmdll.dll”正由另一进程使用，因此该进程无法访问此文件。
+Source: mscorlib
+StackTrace :   在 System.IO.__Error.WinIOError(Int32 errorCode, String maybeFullPath)
+   在 System.IO.File.InternalCopy(String sourceFileName, String destFileName, Boolean overwrite, Boolean checkHost)
+   在 DeviceManagement.MainForm..ctor() 位置 D:\software\64bit_dm\DeviceManager\DeviceManager\MainForm.cs:行号 288
+   在 DeviceManagement.Program.Main() 位置 D:\software\64bit_dm\DeviceManager\DeviceManager\Program.cs:行号 54
+TargetSite :Void WinIOError(Int32, System.String)
+-------------------------------------------------------------------------

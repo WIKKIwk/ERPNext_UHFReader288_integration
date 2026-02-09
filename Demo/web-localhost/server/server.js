@@ -1333,6 +1333,8 @@ function main() {
 
   let lastInvParams = null;
   let lastConnectArgs = null;
+  let lastTag = null;
+  let lastTagAt = 0;
   const desired = { connected: false, inventory: false };
   let inventoryRecoverPromise = null;
   let lastAutoRecoverAt = 0;
@@ -1757,7 +1759,10 @@ function main() {
 
   function decorateStatus(status) {
     const base = status && typeof status === 'object' ? status : {};
-    return { ...base, desiredInventory: resolveDesiredInventory() };
+    const tag = lastTag && typeof lastTag === 'object'
+      ? { ...lastTag, seenAt: lastTagAt }
+      : null;
+    return { ...base, desiredInventory: resolveDesiredInventory(), lastTag: tag };
   }
 
   function loadTcpCandidates() {
@@ -2221,6 +2226,10 @@ function main() {
         } catch {
           // ignore
         }
+      }
+      if (evt.event === 'TAG' && payload && typeof payload === 'object' && payload.epcId) {
+        lastTag = payload;
+        lastTagAt = Date.now();
       }
       sseBroadcast(evt.event, payload);
       if (evt.event === 'TAG') erpPush.enqueue(payload);

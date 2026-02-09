@@ -1,0 +1,650 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>MainWindow</class>
+ <widget class="QMainWindow" name="MainWindow">
+  <property name="geometry">
+   <rect>
+    <x>0</x>
+    <y>0</y>
+    <width>861</width>
+    <height>599</height>
+   </rect>
+  </property>
+  <property name="windowTitle">
+   <string>CF815 Linux Demo</string>
+  </property>
+  <widget class="QWidget" name="centralwidget">
+   <widget class="QLabel" name="label">
+    <property name="geometry">
+     <rect>
+      <x>10</x>
+      <y>10</y>
+      <width>63</width>
+      <height>20</height>
+     </rect>
+    </property>
+    <property name="text">
+     <string>Adapter:</string>
+    </property>
+   </widget>
+   <widget class="QComboBox" name="cmbAdapters">
+    <property name="geometry">
+     <rect>
+      <x>70</x>
+      <y>4</y>
+      <width>701</width>
+      <height>28</height>
+     </rect>
+    </property>
+   </widget>
+   <widget class="QPushButton" name="btnRefresh">
+    <property name="geometry">
+     <rect>
+      <x>780</x>
+      <y>4</y>
+      <width>71</width>
+      <height>28</height>
+     </rect>
+    </property>
+    <property name="text">
+     <string>Refresh</string>
+    </property>
+   </widget>
+   <widget class="QGroupBox" name="groupBox">
+    <property name="geometry">
+     <rect>
+      <x>10</x>
+      <y>40</y>
+      <width>521</width>
+      <height>261</height>
+     </rect>
+    </property>
+    <property name="title">
+     <string>Device list (Double click the device list to get the device configuration))</string>
+    </property>
+    <widget class="QTableView" name="dtDevices">
+     <property name="geometry">
+      <rect>
+       <x>0</x>
+       <y>20</y>
+       <width>521</width>
+       <height>241</height>
+      </rect>
+     </property>
+    </widget>
+   </widget>
+   <widget class="QPushButton" name="btnSearch">
+    <property name="geometry">
+     <rect>
+      <x>10</x>
+      <y>310</y>
+      <width>521</width>
+      <height>28</height>
+     </rect>
+    </property>
+    <property name="text">
+     <string>Search Devices</string>
+    </property>
+   </widget>
+   <widget class="QGroupBox" name="groupBox_2">
+    <property name="geometry">
+     <rect>
+      <x>10</x>
+      <y>380</y>
+      <width>521</width>
+      <height>161</height>
+     </rect>
+    </property>
+    <property name="title">
+     <string>Basic Settings</string>
+    </property>
+    <widget class="QLabel" name="label_2">
+     <property name="geometry">
+      <rect>
+       <x>10</x>
+       <y>40</y>
+       <width>101</width>
+       <height>20</height>
+      </rect>
+     </property>
+     <property name="text">
+      <string>Device Name:</string>
+     </property>
+    </widget>
+    <widget class="QLabel" name="label_3">
+     <property name="geometry">
+      <rect>
+       <x>260</x>
+       <y>40</y>
+       <width>71</width>
+       <height>20</height>
+      </rect>
+     </property>
+     <property name="text">
+      <string>Device IP:</string>
+     </property>
+    </widget>
+    <widget class="QLineEdit" name="txtIP">
+     <property name="geometry">
+      <rect>
+       <x>330</x>
+       <y>32</y>
+       <width>181</width>
+       <height>28</height>
+      </rect>
+     </property>
+     <property name="inputMask">
+      <string/>
+     </property>
+     <property name="alignment">
+      <set>Qt::AlignLeading|Qt::AlignLeft|Qt::AlignVCenter</set>
+     </property>
+    </widget>
+    <widget class="QLineEdit" name="txtDeviceName">
+     <property name="geometry">
+      <rect>
+       <x>103</x>
+       <y>33</y>
+       <width>151</width>
+       <height>28</height>
+      </rect>
+     </property>
+    </widget>
+    <widget class="QLabel" name="label_4">
+     <property name="geometry">
+      <rect>
+       <x>10</x>
+       <y>90</y>
+       <width>91</width>
+       <height>20</height>
+      </rect>
+     </property>
+     <property name="text">
+      <string>Subnet Mask:</string>
+     </property>
+    </widget>
+    <widget class="QLabel" name="label_5">
+     <property name="geometry">
+      <rect>
+       <x>260</x>
+       <y>90</y>
+       <width>71</width>
+       <height>20</height>
+      </rect>
+     </property>
+     <property name="text">
+      <string>Gateway:</string>
+     </property>
+    </widget>
+    <widget class="QLineEdit" name="txtGateway">
+     <property name="geometry">
+      <rect>
+       <x>330</x>
+       <y>82</y>
+       <width>181</width>
+       <height>28</height>
+      </rect>
+     </property>
+    </widget>
+    <widget class="QLineEdit" name="txtSubnetMask">
+     <property name="geometry">
+      <rect>
+       <x>103</x>
+       <y>82</y>
+       <width>151</width>
+       <height>28</height>
+      </rect>
+     </property>
+    </widget>
+    <widget class="QCheckBox" name="ckbDHCP">
+     <property name="geometry">
+      <rect>
+       <x>10</x>
+       <y>124</y>
+       <width>91</width>
+       <height>26</height>
+      </rect>
+     </property>
+     <property name="text">
+      <string>DHCP</string>
+     </property>
+    </widget>
+    <widget class="QCheckBox" name="ckbSerialPortConfig">
+     <property name="geometry">
+      <rect>
+       <x>250</x>
+       <y>125</y>
+       <width>261</width>
+       <height>26</height>
+      </rect>
+     </property>
+     <property name="text">
+      <string>Serial port negotiation configuration</string>
+     </property>
+    </widget>
+   </widget>
+   <widget class="QPushButton" name="btnInitialization">
+    <property name="geometry">
+     <rect>
+      <x>10</x>
+      <y>340</y>
+      <width>171</width>
+      <height>28</height>
+     </rect>
+    </property>
+    <property name="text">
+     <string>Initialization</string>
+    </property>
+   </widget>
+   <widget class="QPushButton" name="pushButton_2">
+    <property name="geometry">
+     <rect>
+      <x>185</x>
+      <y>340</y>
+      <width>171</width>
+      <height>28</height>
+     </rect>
+    </property>
+    <property name="text">
+     <string>Load Config File</string>
+    </property>
+   </widget>
+   <widget class="QPushButton" name="pushButton_3">
+    <property name="geometry">
+     <rect>
+      <x>360</x>
+      <y>340</y>
+      <width>171</width>
+      <height>28</height>
+     </rect>
+    </property>
+    <property name="text">
+     <string>Export Profile</string>
+    </property>
+   </widget>
+   <widget class="QGroupBox" name="groupBox_3">
+    <property name="geometry">
+     <rect>
+      <x>540</x>
+      <y>40</y>
+      <width>311</width>
+      <height>461</height>
+     </rect>
+    </property>
+    <property name="title">
+     <string>Port 1</string>
+    </property>
+    <widget class="QLabel" name="label_6">
+     <property name="geometry">
+      <rect>
+       <x>11</x>
+       <y>41</y>
+       <width>121</width>
+       <height>20</height>
+      </rect>
+     </property>
+     <property name="text">
+      <string>Network Mode:</string>
+     </property>
+    </widget>
+    <widget class="QLabel" name="label_7">
+     <property name="geometry">
+      <rect>
+       <x>11</x>
+       <y>73</y>
+       <width>81</width>
+       <height>20</height>
+      </rect>
+     </property>
+     <property name="text">
+      <string>Local Port:</string>
+     </property>
+    </widget>
+    <widget class="QLabel" name="label_8">
+     <property name="geometry">
+      <rect>
+       <x>11</x>
+       <y>105</y>
+       <width>121</width>
+       <height>20</height>
+      </rect>
+     </property>
+     <property name="text">
+      <string>IP/Domain Name:</string>
+     </property>
+    </widget>
+    <widget class="QLabel" name="label_9">
+     <property name="geometry">
+      <rect>
+       <x>11</x>
+       <y>137</y>
+       <width>101</width>
+       <height>20</height>
+      </rect>
+     </property>
+     <property name="text">
+      <string>Destination IP:</string>
+     </property>
+    </widget>
+    <widget class="QLabel" name="label_10">
+     <property name="geometry">
+      <rect>
+       <x>11</x>
+       <y>169</y>
+       <width>121</width>
+       <height>20</height>
+      </rect>
+     </property>
+     <property name="text">
+      <string>Destination Port:</string>
+     </property>
+    </widget>
+    <widget class="QLabel" name="label_11">
+     <property name="geometry">
+      <rect>
+       <x>11</x>
+       <y>201</y>
+       <width>81</width>
+       <height>20</height>
+      </rect>
+     </property>
+     <property name="text">
+      <string>Baud Rate:</string>
+     </property>
+    </widget>
+    <widget class="QLabel" name="label_12">
+     <property name="geometry">
+      <rect>
+       <x>11</x>
+       <y>233</y>
+       <width>71</width>
+       <height>20</height>
+      </rect>
+     </property>
+     <property name="text">
+      <string>Data Bits:</string>
+     </property>
+    </widget>
+    <widget class="QLabel" name="label_13">
+     <property name="geometry">
+      <rect>
+       <x>11</x>
+       <y>264</y>
+       <width>81</width>
+       <height>20</height>
+      </rect>
+     </property>
+     <property name="text">
+      <string>Stop Bits:</string>
+     </property>
+    </widget>
+    <widget class="QLabel" name="label_14">
+     <property name="geometry">
+      <rect>
+       <x>11</x>
+       <y>296</y>
+       <width>81</width>
+       <height>20</height>
+      </rect>
+     </property>
+     <property name="text">
+      <string>Check Bits:</string>
+     </property>
+    </widget>
+    <widget class="QLabel" name="label_15">
+     <property name="geometry">
+      <rect>
+       <x>11</x>
+       <y>328</y>
+       <width>161</width>
+       <height>20</height>
+      </rect>
+     </property>
+     <property name="text">
+      <string>Network Disconnected:</string>
+     </property>
+    </widget>
+    <widget class="QLabel" name="label_16">
+     <property name="geometry">
+      <rect>
+       <x>11</x>
+       <y>360</y>
+       <width>131</width>
+       <height>20</height>
+      </rect>
+     </property>
+     <property name="text">
+      <string>RX Packing Length:</string>
+     </property>
+    </widget>
+    <widget class="QLabel" name="label_17">
+     <property name="geometry">
+      <rect>
+       <x>11</x>
+       <y>392</y>
+       <width>141</width>
+       <height>20</height>
+      </rect>
+     </property>
+     <property name="text">
+      <string>RX Packing Timeout:</string>
+     </property>
+    </widget>
+    <widget class="QLabel" name="label_18">
+     <property name="geometry">
+      <rect>
+       <x>11</x>
+       <y>424</y>
+       <width>141</width>
+       <height>20</height>
+      </rect>
+     </property>
+     <property name="text">
+      <string>Network Connected:</string>
+     </property>
+    </widget>
+    <widget class="QCheckBox" name="ckbCLoseConnection">
+     <property name="geometry">
+      <rect>
+       <x>170</x>
+       <y>325</y>
+       <width>141</width>
+       <height>26</height>
+      </rect>
+     </property>
+     <property name="text">
+      <string>Close Connection</string>
+     </property>
+    </widget>
+    <widget class="QCheckBox" name="ckbClearPortData">
+     <property name="geometry">
+      <rect>
+       <x>160</x>
+       <y>420</y>
+       <width>141</width>
+       <height>26</height>
+      </rect>
+     </property>
+     <property name="text">
+      <string>Clear Port Data</string>
+     </property>
+    </widget>
+    <widget class="QLabel" name="label_19">
+     <property name="geometry">
+      <rect>
+       <x>250</x>
+       <y>390</y>
+       <width>51</width>
+       <height>20</height>
+      </rect>
+     </property>
+     <property name="text">
+      <string>(10ms)</string>
+     </property>
+    </widget>
+    <widget class="QLabel" name="label_20">
+     <property name="geometry">
+      <rect>
+       <x>250</x>
+       <y>360</y>
+       <width>61</width>
+       <height>20</height>
+      </rect>
+     </property>
+     <property name="text">
+      <string>(&lt;=512)</string>
+     </property>
+    </widget>
+    <widget class="QLineEdit" name="txtRXPackingTimeout">
+     <property name="geometry">
+      <rect>
+       <x>150</x>
+       <y>390</y>
+       <width>91</width>
+       <height>28</height>
+      </rect>
+     </property>
+    </widget>
+    <widget class="QLineEdit" name="txtRXPackingLength">
+     <property name="geometry">
+      <rect>
+       <x>140</x>
+       <y>354</y>
+       <width>101</width>
+       <height>28</height>
+      </rect>
+     </property>
+    </widget>
+    <widget class="QLineEdit" name="txtDestinationPort">
+     <property name="geometry">
+      <rect>
+       <x>130</x>
+       <y>163</y>
+       <width>171</width>
+       <height>28</height>
+      </rect>
+     </property>
+    </widget>
+    <widget class="QLineEdit" name="txtDestinationIP">
+     <property name="geometry">
+      <rect>
+       <x>130</x>
+       <y>132</y>
+       <width>171</width>
+       <height>28</height>
+      </rect>
+     </property>
+    </widget>
+    <widget class="QLineEdit" name="txtLocalPort">
+     <property name="geometry">
+      <rect>
+       <x>170</x>
+       <y>70</y>
+       <width>131</width>
+       <height>28</height>
+      </rect>
+     </property>
+    </widget>
+    <widget class="QCheckBox" name="ckbRandom">
+     <property name="geometry">
+      <rect>
+       <x>90</x>
+       <y>70</y>
+       <width>81</width>
+       <height>26</height>
+      </rect>
+     </property>
+     <property name="text">
+      <string>Random</string>
+     </property>
+    </widget>
+    <widget class="QComboBox" name="cmbNetworkMode">
+     <property name="geometry">
+      <rect>
+       <x>120</x>
+       <y>37</y>
+       <width>181</width>
+       <height>28</height>
+      </rect>
+     </property>
+    </widget>
+    <widget class="QComboBox" name="cmbIPDomainName">
+     <property name="geometry">
+      <rect>
+       <x>130</x>
+       <y>100</y>
+       <width>171</width>
+       <height>28</height>
+      </rect>
+     </property>
+    </widget>
+    <widget class="QComboBox" name="cmbBaudRate">
+     <property name="geometry">
+      <rect>
+       <x>90</x>
+       <y>196</y>
+       <width>211</width>
+       <height>28</height>
+      </rect>
+     </property>
+    </widget>
+    <widget class="QComboBox" name="cmbDataBits">
+     <property name="geometry">
+      <rect>
+       <x>90</x>
+       <y>230</y>
+       <width>211</width>
+       <height>28</height>
+      </rect>
+     </property>
+    </widget>
+    <widget class="QComboBox" name="cmbStopBits">
+     <property name="geometry">
+      <rect>
+       <x>90</x>
+       <y>261</y>
+       <width>211</width>
+       <height>28</height>
+      </rect>
+     </property>
+    </widget>
+    <widget class="QComboBox" name="cmbCheckBits">
+     <property name="geometry">
+      <rect>
+       <x>90</x>
+       <y>294</y>
+       <width>211</width>
+       <height>28</height>
+      </rect>
+     </property>
+    </widget>
+   </widget>
+   <widget class="QPushButton" name="btnSetConfig">
+    <property name="geometry">
+     <rect>
+      <x>540</x>
+      <y>510</y>
+      <width>311</width>
+      <height>28</height>
+     </rect>
+    </property>
+    <property name="text">
+     <string>Set Configuration</string>
+    </property>
+   </widget>
+  </widget>
+  <widget class="QMenuBar" name="menubar">
+   <property name="geometry">
+    <rect>
+     <x>0</x>
+     <y>0</y>
+     <width>861</width>
+     <height>25</height>
+    </rect>
+   </property>
+  </widget>
+  <widget class="QStatusBar" name="statusbar"/>
+ </widget>
+ <resources/>
+ <connections/>
+</ui>

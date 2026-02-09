@@ -1,0 +1,261 @@
+<RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="fill_parent"
+    android:layout_height="fill_parent" >
+
+   
+<LinearLayout 
+	android:id="@+id/tag_real_linearLayout"
+	android:layout_width="fill_parent"
+	android:layout_height="fill_parent"
+	android:background="#EEEEEE"
+	android:paddingTop="5sp"
+	android:layout_above="@+id/TextView_kb"
+	android:orientation="vertical" >
+
+	<LinearLayout
+		android:layout_width="fill_parent"
+		android:layout_height="fill_parent"
+		android:orientation="vertical">
+
+		<LinearLayout
+			android:id="@+id/tag_type"
+			android:layout_width="fill_parent"
+			android:layout_height="wrap_content"
+			android:paddingLeft="3.0sp"
+			android:paddingRight="3.0sp"
+			android:background="@color/full_transparent" >
+
+			<View
+				android:layout_width="10.0sp"
+				android:layout_height="30dp"
+				android:background="#0bbbf7"/>
+
+			<TextView
+				android:id="@+id/id_text"
+				android:layout_width="0dip"
+				android:layout_height="30dp"
+				android:layout_weight="1"
+				android:padding="2sp"
+				android:textSize="10sp"
+				android:textColor="#ff444444"
+				android:gravity="center_vertical|center_horizontal"
+				android:singleLine="true"
+				android:text="@string/idno"
+				android:textStyle="bold"/>
+
+			<View
+				android:layout_width="1dp"
+				android:layout_height="match_parent"
+				android:background="#BBBBBB" />
+
+			<TextView
+				android:id="@+id/epc_text"
+				android:layout_width="0dip"
+				android:layout_height="30dp"
+				android:layout_weight="4"
+				android:padding="2sp"
+				android:textSize="10sp"
+				android:textColor="#ff333333"
+				android:gravity="center"
+				android:singleLine="true"
+				android:text="@string/epcid"
+				android:textStyle="bold"/>
+
+			<View
+				android:layout_width="1dp"
+				android:layout_height="match_parent"
+				android:background="#BBBBBB" />
+
+			<TextView
+				android:id="@+id/times_text"
+				android:layout_width="0dip"
+				android:layout_height="30dp"
+				android:layout_weight="1"
+				android:padding="2sp"
+				android:textSize="10sp"
+				android:textColor="#ff333333"
+				android:gravity="center"
+				android:singleLine="true"
+				android:text = "@string/times"
+				android:textStyle="bold" />
+
+			<View
+				android:layout_width="1dp"
+				android:layout_height="match_parent"
+				android:background="#BBBBBB" />
+
+			<TextView
+				android:id="@+id/rssi_text"
+				android:layout_width="0dip"
+				android:layout_height="30dp"
+				android:layout_weight="1"
+				android:padding="2sp"
+				android:textSize="10sp"
+				android:textColor="#ff333333"
+				android:gravity="center"
+				android:singleLine="true"
+				android:text ="@string/rssi"
+				android:textStyle="bold"/>
+
+			<View
+				android:layout_width="1dp"
+				android:layout_height="match_parent"
+				android:background="#BBBBBB" />
+
+			<TextView
+				android:id="@+id/ant_text"
+				android:layout_width="0dip"
+				android:layout_height="30dp"
+				android:layout_weight="2"
+				android:padding="2sp"
+				android:textSize="10sp"
+				android:textColor="#ff333333"
+				android:gravity="center"
+				android:singleLine="true"
+				android:text="@string/antenna"
+				android:textStyle="bold"/>
+
+			<View
+				android:layout_width="1dp"
+				android:layout_height="match_parent"
+				android:background="#BBBBBB" />
+			<TextView
+				android:id="@+id/phase_text"
+				android:layout_width="0dip"
+				android:layout_height="30dp"
+				android:layout_weight="1"
+				android:padding="2sp"
+				android:textSize="10sp"
+				android:textColor="#ff333333"
+				android:gravity="center"
+				android:singleLine="true"
+				android:text="@string/phase"
+				android:textStyle="bold"/>
+
+			<View
+				android:layout_width="1dp"
+				android:layout_height="match_parent"
+				android:background="#BBBBBB" />
+			<TextView
+				android:id="@+id/freq_text"
+				android:layout_width="0dip"
+				android:layout_height="30dp"
+				android:layout_weight="1"
+				android:padding="2sp"
+				android:textSize="10sp"
+				android:textColor="#ff333333"
+				android:gravity="center"
+				android:singleLine="true"
+				android:text="@string/freq"
+				android:textStyle="bold"/>
+
+			<View
+				android:layout_width="1dp"
+				android:layout_height="match_parent"
+				android:background="#BBBBBB" />
+
+		</LinearLayout>
+
+		<View
+			android:layout_width="fill_parent"
+			android:layout_height="1dip"
+			android:background="#ff555555" />
+
+		<ListView
+			android:id="@+id/tag_real_list_view"
+			android:layout_width="fill_parent"
+			android:layout_height="wrap_content"
+			android:paddingLeft="3.0sp"
+			android:paddingRight="3.0sp"
+			android:scrollbars="vertical"
+			android:dividerHeight="0.0dip"
+			android:scrollingCache="false"
+			android:transcriptMode="alwaysScroll"
+			android:fadingEdge="none"/>
+
+	</LinearLayout>
+</LinearLayout>
+
+
+    <TextView
+        android:id="@+id/TextView_kb"
+        android:layout_width="fill_parent"
+        android:layout_height="2dp"
+        android:layout_above="@+id/horizontalScrollView1"
+        android:background="#0bbbf7"
+        android:layout_centerHorizontal="true"/>
+
+    <LinearLayout
+        android:id="@+id/horizontalScrollView1"
+        android:layout_width="fill_parent"
+        android:layout_above="@+id/scanlayout1"
+        android:orientation="horizontal"
+        android:layout_height="40dp" >
+	     <TextView
+            android:id="@+id/number"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text ="@string/number"
+            android:layout_marginLeft="10dp"
+            android:textSize="20sp" />
+        
+            <TextView
+            android:id="@+id/tx_num"
+            android:layout_width="100dp"
+            android:layout_height="wrap_content"
+            android:text="0"
+            android:textColor="#cc0000"
+            android:textSize="20sp" />
+		 <TextView
+            android:id="@+id/scantime"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text ="@string/ttime"
+            android:layout_marginLeft="10dp"
+            android:textSize="20sp" />
+        
+            <TextView
+            android:id="@+id/tx_time"
+            android:layout_width="100dp"
+            android:layout_height="wrap_content"
+            android:text="0"
+            android:textColor="#cc0000"
+            android:textSize="20sp" />
+      
+    </LinearLayout>
+    
+   
+
+    <RelativeLayout
+        android:id="@+id/scanlayout1"
+        android:layout_width="fill_parent"
+        android:layout_height="wrap_content"
+        android:layout_alignParentBottom="true"
+        android:layout_alignParentLeft="true" >
+		
+        
+
+        <Button
+            android:id="@+id/button_scan"
+            android:layout_width="150dp"
+            android:layout_height="60dp"
+            android:layout_centerHorizontal="true"
+            android:layout_centerVertical="true"
+            android:gravity="center"
+            android:background="@drawable/color_button_selector"
+            android:text = "@string/btscan" />
+
+		<CheckBox
+			android:id="@+id/check_phase"
+			android:layout_width="wrap_content"
+			android:layout_height="wrap_content"
+			android:layout_marginLeft="3dp"
+			android:layout_toRightOf="@+id/button_scan"
+			android:gravity="center"
+			android:layout_centerVertical="true"
+			android:text="@string/phase" />
+
+
+	</RelativeLayout>
+
+</RelativeLayout>

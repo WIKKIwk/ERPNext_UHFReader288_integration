@@ -1,0 +1,12 @@
+F:\Demo\UdpDemo\UdpDemo\UdpDemo\bin\Debug\UdpDemo.exe.config
+F:\Demo\UdpDemo\UdpDemo\UdpDemo\bin\Debug\UdpDemo.exe
+F:\Demo\UdpDemo\UdpDemo\UdpDemo\bin\Debug\UdpDemo.pdb
+F:\Demo\UdpDemo\UdpDemo\UdpDemo\obj\Debug\UdpDemo.Properties.Resources.resources
+F:\Demo\UdpDemo\UdpDemo\UdpDemo\obj\Debug\UdpDemo.csproj.GenerateResource.cache
+F:\Demo\UdpDemo\UdpDemo\UdpDemo\obj\Debug\UdpDemo.csproj.CoreCompileInputs.cache
+F:\Demo\UdpDemo\UdpDemo\UdpDemo\obj\Debug\UdpDemo.exe
+F:\Demo\UdpDemo\UdpDemo\UdpDemo\obj\Debug\UdpDemo.pdb
+F:\Demo\UdpDemo\UdpDemo\UdpDemo\obj\Debug\UdpDemo.csprojAssemblyReference.cache
+F:\Demo\UdpDemo\UdpDemo\UdpDemo\bin\Debug\IPAddressControlLib.dll
+F:\Demo\UdpDemo\UdpDemo\UdpDemo\obj\Debug\UdpDemo.csproj.CopyComplete
+F:\Demo\UdpDemo\UdpDemo\UdpDemo\obj\Debug\UdpDemo.FrmMain.resources
