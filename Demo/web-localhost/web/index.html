@@ -442,50 +442,33 @@
       </div>
 
       <div class="c1g2-main">
-<div class="panel">
-          <h3>Tag list (No Repeat)</h3>
-          <div class="grid">
-            <label>
-              <span>Filter (EPC)</span>
-              <input id="tagFilter" placeholder="E200..." />
-            </label>
-            <label>
-              <span>CSV eksport</span>
-              <button id="btnTagsExport" class="ghost">CSV yuklab olish</button>
-              <small class="help">Tag jadvalidagi ma’lumotlarni CSV qilib saqlaydi.</small>
-            </label>
-          </div>
-
-          <div class="table-wrap">
-            <table id="tagTableTable" class="tag-table show-phase">
-              <thead>
-                <tr>
-                  <th>No.</th>
-                  <th>EPC</th>
-                  <th>MEM</th>
-                  <th>Count</th>
-                  <th>RSSI</th>
-                  <th class="col-phase">Phase_begin</th>
-                  <th class="col-phase">Phase_end</th>
-                  <th>ANT</th>
-                  <th class="col-phase">Freq(kHz)</th>
-                  <th>Oxirgi ko‘rindi</th>
-                </tr>
-              </thead>
-              <tbody id="tagTable"></tbody>
-            </table>
-          </div>
-        </div>
-
         <div class="panel">
           <h3>Hisoblagichlar</h3>
-          <div class="digit-grid-large">
+          <div class="digit-grid digit-grid-large">
             <div class="digit-card">
               <div class="digit-label">EPC Number (unique)</div>
               <div class="digit" id="statUnique">0</div>
             </div>
+            <div class="digit-card">
+              <div class="digit-label">Jami o‘qish (total)</div>
+              <div class="digit" id="statTotal">0</div>
+            </div>
+            <div class="digit-card">
+              <div class="digit-label">Tezlik (tags/s)</div>
+              <div class="digit" id="statSpeed">0</div>
+            </div>
+            <div class="digit-card">
+              <div class="digit-label">Ish vaqti (s)</div>
+              <div class="digit" id="statRuntime">0</div>
+            </div>
+            <div class="digit-card digit-wide">
+              <div class="digit-label">Oxirgi EPC/MEM</div>
+              <div class="digit small" id="statLast">-</div>
+            </div>
+          </div>
+        </div>
 
-<div class="panel">
+        <div class="panel">
           <h3>Tag list (No Repeat)</h3>
           <div class="grid">
             <label>
