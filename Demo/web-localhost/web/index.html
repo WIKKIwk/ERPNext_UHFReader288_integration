@@ -30,7 +30,6 @@
     <nav class="tabs tabs-main" id="mainTabs" aria-label="Asosiy bo‘limlar">
       <button class="tab active" type="button" data-main="reader">Reader settings</button>
       <button class="tab" type="button" data-main="c1g2">EPCC1-G2</button>
-      <button class="tab" type="button" data-main="aloqa">Aloqa</button>
     </nav>
 
     <nav class="tabs tabs-sub" id="subTabs" aria-label="Ichki bo‘limlar"></nav>
@@ -791,81 +790,6 @@
         </div>
       </div>
     </section>
-
-    <section class="card module hidden" data-main="aloqa" data-sub="main">
-      <h2>Aloqa (ERPNext integratsiya)</h2>
-
-      <div class="panel">
-        <h3>ERP domen va token</h3>
-
-        <div class="grid">
-          <label>
-            <span>ERP URL (domen)</span>
-            <input id="erpUrl" placeholder="https://erp.domain.uz" />
-            <small class="help">
-              Masalan: <code>https://erp.domain.uz</code> yoki local test uchun <code>http://127.0.0.1:8000</code>
-            </small>
-          </label>
-
-          <label>
-            <span>Authorization (token)</span>
-            <input id="erpAuth" type="password" placeholder="token api_key:api_secret" />
-            <small class="help">
-              ERP’da <code>/app/rfidenter-auth</code> (Autentifikatsiya / Token) sahifasida token generatsiya qiling. Bu yerga paste qiling.
-            </small>
-          </label>
-
-          <label>
-            <span>Device (nom)</span>
-            <input id="erpDevice" placeholder="my-reader-pc" />
-            <small class="help">ERP’da taglar shu “device” nomi bilan ko‘rinadi.</small>
-          </label>
-
-          <label>
-            <span>Agent ID</span>
-            <input id="erpAgentId" placeholder="my-reader-pc" />
-            <small class="help">Remote UI uchun agent identifikatori (odatda device bilan bir xil).</small>
-          </label>
-
-          <label>
-            <span>Profil</span>
-            <select id="erpProfile">
-              <option value="server">Server</option>
-              <option value="local">Local</option>
-            </select>
-            <small class="help">Local test va server uchun alohida profillar saqlanadi.</small>
-          </label>
-        </div>
-
-        <label class="checkline">
-          <input id="erpPushEnabled" type="checkbox" checked />
-          <span>Taglarni ERP’ga yuborish (push)</span>
-        </label>
-
-        <label class="checkline">
-          <input id="erpRpcEnabled" type="checkbox" checked />
-          <span>Remote boshqaruv (ERP’dan reader’ni boshqarish)</span>
-        </label>
-
-        <label class="checkline">
-          <input id="erpOverrideEnv" type="checkbox" />
-          <span>ENV’ni e’tiborsiz (local test uchun)</span>
-        </label>
-        <div class="hint">Agar server ENV bilan “lock” bo‘lsa, shu yoqilsa local config ishlaydi.</div>
-
-        <div class="actions">
-          <button id="btnErpSave" class="primary">Saqlash</button>
-          <button id="btnErpUseProfile" class="ghost">Profilni faollashtirish</button>
-          <button id="btnErpTest" class="ghost">Test</button>
-          <button id="btnErpCopy" class="ghost">Copy env</button>
-          <button id="btnErpClear" class="ghost">Tokenni o‘chirish</button>
-        </div>
-
-        <div class="hint" id="erpConfigHint"></div>
-        <pre class="output" id="erpOut"></pre>
-      </div>
-    </section>
-
     <section class="card">
       <h2>Operation records</h2>
       <div class="actions">

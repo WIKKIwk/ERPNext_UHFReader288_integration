@@ -113,14 +113,12 @@ const TAB_SCHEMA = {
       rw: 'Read/Write Tag',
     },
   },
-  aloqa: { label: 'Aloqa', subs: { main: 'Aloqa' } },
 };
 
 const MAIN_TABS = Object.keys(TAB_SCHEMA);
 const DEFAULT_SUBS = {
   reader: 'basic',
   c1g2: 'realtime',
-  aloqa: 'main',
 };
 
 let activeMain = 'reader';
@@ -3485,10 +3483,10 @@ function humanError(err) {
   if (!msg) return 'Noma’lum xato';
   const up = msg.toUpperCase();
   if (up.includes('401') && up.includes('UNAUTHORIZED')) {
-    return '401 UNAUTHORIZED — token noto‘g‘ri/eskirgan. ERP’da /app/rfidenter-auth sahifasidan yangi token oling va Aloqa bo‘limida qayta saqlang.';
+    return '401 UNAUTHORIZED — token noto‘g‘ri/eskirgan.';
   }
   if (msg.includes('AuthenticationError')) {
-    return 'Autentifikatsiya xatosi — token noto‘g‘ri/eskirgan. ERP’da /app/rfidenter-auth sahifasidan yangi token oling va Aloqa bo‘limida qayta saqlang.';
+    return 'Autentifikatsiya xatosi — token noto‘g‘ri/eskirgan.';
   }
   if (msg.includes('Timeout waiting for')) {
     return `${msg}. Qurilma band yoki ulanish yo‘q bo‘lishi mumkin; IP/portni tekshirib qayta urinib ko‘ring.`;
@@ -3511,278 +3509,6 @@ function maybeLogStack(prefix, err) {
   } catch {
     // ignore
   }
-}
-
-function initAloqaUi() {
-  const urlEl = $('erpUrl');
-  if (!urlEl) return;
-
-  const authEl = $('erpAuth');
-  const deviceEl = $('erpDevice');
-  const agentEl = $('erpAgentId');
-  const profileEl = $('erpProfile');
-  const pushEl = $('erpPushEnabled');
-  const rpcEl = $('erpRpcEnabled');
-  const overrideEl = $('erpOverrideEnv');
-  const hintEl = $('erpConfigHint');
-  const outEl = $('erpOut');
-  let lastCfg = null;
-
-  const normalizeProfile = (raw) => (String(raw || '').trim().toLowerCase() === 'local' ? 'local' : 'server');
-  const ERP_LS_KEY = `${LS_KEY}.erp`;
-  let localErp = {};
-
-  const loadLocalErp = () => {
-    try {
-      const raw = localStorage.getItem(ERP_LS_KEY);
-      if (!raw) return {};
-      const parsed = JSON.parse(raw);
-      return parsed && typeof parsed === 'object' ? parsed : {};
-    } catch {
-      return {};
-    }
-  };
-
-  const saveLocalErp = (next) => {
-    try {
-      localStorage.setItem(ERP_LS_KEY, JSON.stringify(next || {}));
-    } catch {
-      // ignore
-    }
-  };
-
-  const getLocalProfile = (profileId) => {
-    const key = normalizeProfile(profileId);
-    const entry = localErp && typeof localErp === 'object' ? localErp[key] : null;
-    return entry && typeof entry === 'object' ? entry : {};
-  };
-
-  const setLocalProfile = (profileId, patch) => {
-    const key = normalizeProfile(profileId);
-    const prev = getLocalProfile(key);
-    const next = { ...prev, ...(patch || {}) };
-    localErp = { ...(localErp && typeof localErp === 'object' ? localErp : {}), [key]: next };
-    saveLocalErp(localErp);
-  };
-
-  localErp = loadLocalErp();
-  try {
-    const initialProfile = normalizeProfile(profileEl?.value || 'server');
-    const local = getLocalProfile(initialProfile);
-    if (urlEl && !String(urlEl.value || '').trim() && local.url) urlEl.value = String(local.url || '');
-    if (authEl && !String(authEl.value || '').trim() && local.auth) authEl.value = String(local.auth || '');
-  } catch {
-    // ignore
-  }
-
-  const pickProfile = (cfg, profileId) => {
-    const id = normalizeProfile(profileId);
-    const profiles = cfg?.profiles && typeof cfg.profiles === 'object' ? cfg.profiles : {};
-    const prof = profiles && profiles[id] && typeof profiles[id] === 'object' ? profiles[id] : null;
-    if (prof) return prof;
-    const active = normalizeProfile(cfg?.activeProfile || cfg?.file?.activeProfile || 'server');
-    if (id === active) return cfg?.file || {};
-    return {};
-  };
-
-  const applyProfile = (profileId, cfg = lastCfg) => {
-    if (!cfg) return;
-    const prof = pickProfile(cfg, profileId);
-    if (urlEl && document.activeElement !== urlEl) urlEl.value = String(prof.baseUrl || '').trim();
-    if (deviceEl && document.activeElement !== deviceEl) deviceEl.value = String(prof.device || '').trim();
-    if (agentEl && document.activeElement !== agentEl) agentEl.value = String(prof.agentId || '').trim();
-    if (pushEl) pushEl.checked = Boolean((prof.pushEnabled ?? true));
-    if (rpcEl) rpcEl.checked = Boolean((prof.rpcEnabled ?? true));
-    if (overrideEl) overrideEl.checked = Boolean(prof.overrideEnv);
-    const local = getLocalProfile(profileId);
-    if (urlEl && document.activeElement !== urlEl && !String(urlEl.value || '').trim() && local.url) {
-      urlEl.value = String(local.url || '');
-    }
-    if (authEl && document.activeElement !== authEl && !String(authEl.value || '').trim() && local.auth) {
-      authEl.value = String(local.auth || '');
-    }
-  };
-
-  const render = (cfg) => {
-    const eff = cfg?.effective || {};
-    const file = cfg?.file || {};
-    const src = cfg?.sources || {};
-
-    lastCfg = cfg;
-    const activeProfile = normalizeProfile(cfg?.activeProfile || file.activeProfile || 'server');
-    if (profileEl && document.activeElement !== profileEl) profileEl.value = activeProfile;
-    applyProfile(profileEl?.value || activeProfile, cfg);
-
-    const parts = [];
-    parts.push(`Push: ${eff.pushActive ? 'ON' : 'OFF'}`);
-    parts.push(`RPC: ${eff.rpcActive ? 'ON' : 'OFF'}`);
-    parts.push(`URL: ${eff.baseUrl || '-'}`);
-    parts.push(`Token: ${eff.authSet ? eff.authMasked || '(set)' : 'yo‘q'}`);
-    parts.push(`ENV override: ${eff.overrideEnv ? 'ON' : 'OFF'}`);
-    parts.push(`Profil: ${activeProfile}`);
-    parts.push(`Config: ${cfg?.config_path || '-'}`);
-    if ((src.baseUrl === 'env' || src.auth === 'env') && !eff.overrideEnv) {
-      parts.push('ENV override bor (UI’dan o‘zgarmasligi mumkin).');
-    } else if (eff.overrideEnv) {
-      parts.push('ENV e’tiborsiz (local test rejim).');
-    }
-    if (hintEl) hintEl.textContent = parts.join(' · ');
-
-    if (outEl) outEl.textContent = JSON.stringify(cfg, null, 2);
-  };
-
-  const refresh = async ({ quiet = false } = {}) => {
-    try {
-      const cfg = await apiGet('/api/erp/config');
-      render(cfg);
-      if (!quiet) logLine('Aloqa: ERP config yuklandi.');
-    } catch (e) {
-      if (!quiet) toast(`ERP config xatosi: ${humanError(e)}`, 'warn', { ttlMs: 7000 });
-      if (hintEl) hintEl.textContent = `ERP config olinmadi: ${String(e?.message || e)}`;
-    }
-  };
-
-  $('btnErpSave').onclick = async () => {
-    await runBusy($('btnErpSave'), 'Saqlanmoqda…', async () => {
-      try {
-        const profileId = normalizeProfile(profileEl?.value);
-        const payload = {
-          baseUrl: String(urlEl?.value || '').trim(),
-          device: String(deviceEl?.value || '').trim(),
-          agentId: String(agentEl?.value || '').trim(),
-          pushEnabled: Boolean(pushEl?.checked),
-          rpcEnabled: Boolean(rpcEl?.checked),
-          overrideEnv: Boolean(overrideEl?.checked),
-          profile: profileId,
-          activeProfile: profileId,
-        };
-        const auth = String(authEl?.value || '').trim();
-        if (auth) payload.auth = auth;
-        const r = await api('/api/erp/config', payload);
-        if (payload.baseUrl) setLocalProfile(profileId, { url: payload.baseUrl });
-        if (auth) setLocalProfile(profileId, { auth });
-        render(r);
-        toast('ERP sozlamalari saqlandi.', 'ok');
-        logLine('Aloqa: ERP sozlamalari saqlandi.');
-      } catch (e) {
-        toast(`Saqlash xatosi: ${humanError(e)}`, 'err', { ttlMs: 7000 });
-        logLine(`Aloqa: saqlash xatosi: ${humanError(e)}`);
-      }
-    });
-  };
-
-  $('btnErpClear').onclick = async () => {
-    await runBusy($('btnErpClear'), 'O‘chirilmoqda…', async () => {
-      try {
-        const profileId = normalizeProfile(profileEl?.value);
-        const r = await api('/api/erp/config', { clearAuth: true, profile: profileId });
-        setLocalProfile(profileId, { auth: '' });
-        try {
-          if (authEl) authEl.value = '';
-        } catch {
-          // ignore
-        }
-        render(r);
-        toast('Token o‘chirildi.', 'ok');
-        logLine('Aloqa: token o‘chirildi.');
-      } catch (e) {
-        toast(`Token o‘chirish xatosi: ${humanError(e)}`, 'err', { ttlMs: 7000 });
-        logLine(`Aloqa: token o‘chirish xatosi: ${humanError(e)}`);
-      }
-    });
-  };
-
-  $('btnErpTest').onclick = async () => {
-    await runBusy($('btnErpTest'), 'Tekshirilmoqda…', async () => {
-      try {
-        const payload = {};
-        const baseUrl = String(urlEl?.value || '').trim();
-        const auth = String(authEl?.value || '').trim();
-        if (baseUrl) payload.baseUrl = baseUrl;
-        if (auth) payload.auth = auth;
-        const result = await api('/api/erp/test', payload);
-        if (outEl) outEl.textContent = JSON.stringify(result, null, 2);
-        if (result?.ping?.ok && (result?.auth?.ok || result?.auth?.error === 'Token kiritilmagan.')) {
-          toast('Test: OK', 'ok');
-        } else {
-          toast('Test: muammo bor (chiqishni ko‘ring).', 'warn', { ttlMs: 7000 });
-        }
-        logLine(`Aloqa: ERP test: ${JSON.stringify(result)}`);
-      } catch (e) {
-        toast(`Test xatosi: ${humanError(e)}`, 'err', { ttlMs: 7000 });
-        logLine(`Aloqa: test xatosi: ${humanError(e)}`);
-      }
-    });
-  };
-
-  if ($('btnErpUseProfile')) {
-    $('btnErpUseProfile').onclick = async () => {
-      await runBusy($('btnErpUseProfile'), 'Faollashtirilmoqda…', async () => {
-        try {
-          const profile = normalizeProfile(profileEl?.value);
-          const r = await api('/api/erp/config', { activeProfile: profile });
-          render(r);
-          toast(`Profil faollashtirildi: ${profile}`, 'ok');
-          logLine(`Aloqa: profil faollashtirildi (${profile}).`);
-        } catch (e) {
-          toast(`Profil xatosi: ${humanError(e)}`, 'err', { ttlMs: 7000 });
-          logLine(`Aloqa: profil xatosi: ${humanError(e)}`);
-        }
-      });
-    };
-  }
-
-  $('btnErpCopy').onclick = async () => {
-    try {
-      const baseUrl = String(urlEl?.value || '').trim() || '<ERP_URL>';
-      const auth = String(authEl?.value || '').trim() || 'token <APIKEY>:<APISECRET>';
-      const device = String(deviceEl?.value || '').trim() || 'my-reader-pc';
-      const agentId = String(agentEl?.value || '').trim() || device;
-      const pushEnabled = Boolean(pushEl?.checked);
-      const rpcEnabled = Boolean(rpcEl?.checked);
-
-      const lines = [
-        `export ERP_PUSH_URL=\"${baseUrl}\"`,
-        `export ERP_PUSH_AUTH=\"${auth}\"`,
-        `export ERP_PUSH_DEVICE=\"${device}\"`,
-        `export ERP_AGENT_ID=\"${agentId}\"`,
-        `export ERP_PUSH_ENABLED=\"${pushEnabled ? '1' : '0'}\"`,
-        `export ERP_RPC_ENABLED=\"${rpcEnabled ? '1' : '0'}\"`,
-      ].join('\n');
-
-      await navigator.clipboard.writeText(lines);
-      toast('Env nusxalandi (clipboard).', 'ok');
-    } catch (e) {
-      try {
-        const baseUrl = String(urlEl?.value || '').trim() || '<ERP_URL>';
-        const auth = String(authEl?.value || '').trim() || 'token <APIKEY>:<APISECRET>';
-        const device = String(deviceEl?.value || '').trim() || 'my-reader-pc';
-        const agentId = String(agentEl?.value || '').trim() || device;
-        const pushEnabled = Boolean(pushEl?.checked);
-        const rpcEnabled = Boolean(rpcEl?.checked);
-        const text = [
-          `export ERP_PUSH_URL=\"${baseUrl}\"`,
-          `export ERP_PUSH_AUTH=\"${auth}\"`,
-          `export ERP_PUSH_DEVICE=\"${device}\"`,
-          `export ERP_AGENT_ID=\"${agentId}\"`,
-          `export ERP_PUSH_ENABLED=\"${pushEnabled ? '1' : '0'}\"`,
-          `export ERP_RPC_ENABLED=\"${rpcEnabled ? '1' : '0'}\"`,
-        ].join('\n');
-        downloadTextFile('rfidenter-env.txt', text);
-        toast('Clipboard bloklandi — fayl yuklab berildi.', 'warn', { ttlMs: 7000 });
-      } catch {
-        toast('Nusxalab bo‘lmadi.', 'err', { ttlMs: 7000 });
-      }
-    }
-  };
-
-  if (profileEl) {
-    profileEl.onchange = () => {
-      applyProfile(profileEl.value, lastCfg);
-    };
-  }
-
-  refresh({ quiet: true }).catch(() => {});
 }
 
 async function init() {
@@ -3814,7 +3540,6 @@ async function init() {
   initRegionUi();
   if (pendingBasicState) applyBasicState(pendingBasicState);
   bind();
-  initAloqaUi();
   updateRwMeta();
   scheduleTagViewRender();
   startEvents();
