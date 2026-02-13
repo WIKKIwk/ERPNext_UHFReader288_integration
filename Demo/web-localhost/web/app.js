@@ -113,18 +113,6 @@ const TAB_SCHEMA = {
       rw: 'Read/Write Tag',
     },
   },
-  gjb: { label: 'GJB-test', subs: { main: 'GJB-test' } },
-  iso6b: { label: '18000-6B', subs: { main: '18000-6B' } },
-  net: {
-    label: 'Network module config',
-    subs: {
-      tcp: 'TCP config',
-      tcpnl: 'TCP config-NL',
-      serial: 'Serialport Config',
-      server: 'TCP Server',
-      client: 'TCP Client',
-    },
-  },
   aloqa: { label: 'Aloqa', subs: { main: 'Aloqa' } },
 };
 
@@ -132,9 +120,6 @@ const MAIN_TABS = Object.keys(TAB_SCHEMA);
 const DEFAULT_SUBS = {
   reader: 'basic',
   c1g2: 'realtime',
-  gjb: 'main',
-  iso6b: 'main',
-  net: 'tcp',
   aloqa: 'main',
 };
 
