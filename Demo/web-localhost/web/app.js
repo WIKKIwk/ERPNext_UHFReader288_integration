@@ -2,6 +2,28 @@ const $ = (id) => document.getElementById(id);
 
 const LS_KEY = 'st8504.uhf.localhost.v1';
 const LS_THEME_KEY = 'st8504.theme';
+const LS_PERF_KEY = 'st8504.perf.mode';
+
+function detectPerfMode() {
+  try {
+    const q = new URLSearchParams(window.location.search).get('perf');
+    if (q === '1' || q === 'true' || q === 'on') return true;
+    if (q === '0' || q === 'false' || q === 'off') return false;
+  } catch {
+    // ignore
+  }
+  try {
+    const saved = String(localStorage.getItem(LS_PERF_KEY) || '').trim().toLowerCase();
+    if (saved === '0' || saved === 'false' || saved === 'off') return false;
+    if (saved === '1' || saved === 'true' || saved === 'on') return true;
+  } catch {
+    // ignore
+  }
+  // Default to ON: smoother on weak machines.
+  return true;
+}
+
+let PERF_MODE = detectPerfMode();
 
 // Theme management
 function getTheme() {
@@ -40,6 +62,35 @@ function updateThemeButton(theme) {
     btn.textContent = 'Dark';
     btn.title = 'Dark mode (qora) ga o\'zgartirish';
   }
+}
+
+function updatePerfButton() {
+  const btn = $('perfToggle');
+  if (!btn) return;
+  btn.textContent = PERF_MODE ? 'Perf: ON' : 'Perf: OFF';
+  btn.title = PERF_MODE
+    ? "Performance mode yoqilgan (UI yengil rejim). Bosib o'chirish mumkin."
+    : "Performance mode o'chirilgan. Bosib yoqishingiz mumkin.";
+}
+
+function setPerfMode(next, { persist = true } = {}) {
+  PERF_MODE = Boolean(next);
+  if (persist) {
+    try {
+      localStorage.setItem(LS_PERF_KEY, PERF_MODE ? '1' : '0');
+    } catch {
+      // ignore
+    }
+  }
+  updatePerfButton();
+  scheduleLogFlush();
+}
+
+function setupPerfToggle() {
+  const btn = $('perfToggle');
+  if (!btn) return;
+  updatePerfButton();
+  btn.onclick = () => setPerfMode(!PERF_MODE);
 }
 
 const TAB_SCHEMA = {
@@ -92,11 +143,39 @@ let activeSubs = { ...DEFAULT_SUBS };
 let pendingBasicState = null;
 let antPowerCache = [];
 
-function logLine(msg) {
+const LOG_MAX_LINES = 800;
+let logLines = [];
+let logFlushTimer = 0;
+let logDirty = false;
+
+function flushLogs() {
   const el = $('logs');
+  if (!el || !logDirty) return;
+  logDirty = false;
+  el.textContent = logLines.join('\n');
+}
+
+function scheduleLogFlush() {
+  if (logFlushTimer) return;
+  const delay = PERF_MODE ? 140 : 0;
+  logFlushTimer = window.setTimeout(() => {
+    logFlushTimer = 0;
+    flushLogs();
+  }, delay);
+}
+
+function logLine(msg) {
   const t = new Date().toISOString().replace('T', ' ').replace('Z', '');
-  if (!el) return;
-  el.textContent = `[${t}] ${msg}\n` + el.textContent;
+  logLines.unshift(`[${t}] ${msg}`);
+  if (logLines.length > LOG_MAX_LINES) logLines.length = LOG_MAX_LINES;
+  logDirty = true;
+  scheduleLogFlush();
+}
+
+function clearLogs() {
+  logLines = [];
+  logDirty = true;
+  flushLogs();
 }
 
 function setText(id, value) {
@@ -450,6 +529,7 @@ let powerChangeCooldownUntil = 0;
 let invStartedAt = 0;
 let speedMarks = [];
 let tagViewRenderTimer = 0;
+let tagTableRenderTimer = 0;
 let invOnceWaiter = null;
 let invDesired = false;
 let invPendingSince = 0;
@@ -778,6 +858,19 @@ function scheduleTagViewRender() {
       // ignore
     }
   }, 120);
+}
+
+function scheduleTagTableRender() {
+  if (tagTableRenderTimer) return;
+  const delay = PERF_MODE ? 90 : 0;
+  tagTableRenderTimer = window.setTimeout(() => {
+    tagTableRenderTimer = 0;
+    try {
+      renderTags();
+    } catch {
+      // ignore
+    }
+  }, delay);
 }
 
 function renderAntennaStats() {
@@ -1231,7 +1324,7 @@ function upsertTag(tag) {
     tags.set(k, next);
   }
 
-  renderTags();
+  scheduleTagTableRender();
   scheduleTagViewRender();
 
   setText('statUnique', String(tags.size));
@@ -3284,7 +3377,7 @@ function bind() {
   };
 
   $('btnLogsClear').onclick = () => {
-    setText('logs', '');
+    clearLogs();
     toast('Loglar tozalandi.', 'ok');
   };
 
@@ -3300,6 +3393,40 @@ function bind() {
 }
 
 function startEvents() {
+  let pendingStatusPatch = null;
+  let statusFlushTimer = 0;
+  let lastStatusLogAt = 0;
+  let lastStatusSig = '';
+  let lastBackendLog = '';
+  let lastBackendLogAt = 0;
+
+  const scheduleStatusApply = (patch) => {
+    if (!patch || typeof patch !== 'object') return;
+    pendingStatusPatch = { ...(pendingStatusPatch || {}), ...patch };
+    if (statusFlushTimer) return;
+    const delay = PERF_MODE ? 90 : 0;
+    statusFlushTimer = window.setTimeout(() => {
+      statusFlushTimer = 0;
+      const nextPatch = pendingStatusPatch;
+      pendingStatusPatch = null;
+      if (!nextPatch) return;
+      try {
+        applyStatus({ ...currentStatus, ...nextPatch });
+      } catch {
+        // ignore
+      }
+    }, delay);
+  };
+
+  const shouldLogBackendLine = (line) => {
+    if (!PERF_MODE) return true;
+    const now = Date.now();
+    if (line === lastBackendLog && now - lastBackendLogAt < 1200) return false;
+    lastBackendLog = line;
+    lastBackendLogAt = now;
+    return true;
+  };
+
   backendConnected = false;
   window.clearTimeout(backendErrTimer);
   setBackend('warn');
@@ -3334,18 +3461,27 @@ function startEvents() {
   ev.addEventListener('STATUS', (e) => {
     try {
       const patch = JSON.parse(e.data);
-      applyStatus({ ...currentStatus, ...patch });
+      scheduleStatusApply(patch);
+      const now = Date.now();
+      const sig = `${patch.connected ?? ''}|${patch.inventoryStarted ?? ''}|${patch.desiredInventory ?? ''}|${patch.rc ?? ''}`;
+      if (!PERF_MODE || sig !== lastStatusSig || now - lastStatusLogAt > 1200) {
+        lastStatusSig = sig;
+        lastStatusLogAt = now;
+        logLine(`STATUS: ${e.data}`);
+      }
     } catch {
       // ignore
     }
-    logLine(`STATUS: ${e.data}`);
   });
   ev.addEventListener('log', (e) => {
     try {
       const m = JSON.parse(e.data);
-      logLine(`${m.level}: ${String(m.message).trim()}`);
+      const lvl = String(m.level || '').trim().toLowerCase();
+      if (PERF_MODE && lvl === 'debug') return;
+      const line = `${m.level}: ${String(m.message).trim()}`;
+      if (shouldLogBackendLine(line)) logLine(line);
     } catch {
-      logLine(e.data);
+      if (shouldLogBackendLine(e.data)) logLine(e.data);
     }
   });
   ev.onerror = () => {
@@ -3668,6 +3804,7 @@ async function init() {
   // Initialize theme first
   const savedTheme = getTheme();
   setTheme(savedTheme);
+  setupPerfToggle();
 
   loadUiState();
   try {
