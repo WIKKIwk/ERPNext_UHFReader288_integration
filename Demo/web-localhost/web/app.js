@@ -1481,8 +1481,8 @@ function updateBeepToggleUi() {
   if (btn.dataset.busy === '1') return;
 
   const enabled = Number(sel.value ?? 1) !== 0;
-  btn.textContent = enabled ? 'Tovush: o‘chirish' : 'Tovush: yoqish';
-  btn.title = enabled ? 'Qurilmadagi beep ovozini o‘chiradi (mute).' : 'Qurilmadagi beep ovozini yoqadi.';
+  btn.textContent = enabled ? 'Tovush: yoqilgan' : 'Tovush: o‘chirilgan';
+  btn.title = enabled ? 'Bosilsa tovush o‘chiriladi (mute).' : 'Bosilsa tovush yoqiladi.';
 }
 
 function updateConnUi() {
@@ -2926,8 +2926,9 @@ function bind() {
   };
 
   if ($('btnBeepToggle')) {
-    $('btnBeepToggle').onclick = async () => {
-      await runBusy($('btnBeepToggle'), 'Sozlanmoqda…', async () => {
+    const beepBtn = $('btnBeepToggle');
+    beepBtn.onclick = async () => {
+      await runBusy(beepBtn, 'Sozlanmoqda…', async () => {
         try {
           const sel = $('beepEnabled');
           const cur = Number(sel?.value ?? 1) !== 0 ? 1 : 0;
@@ -2940,16 +2941,15 @@ function bind() {
           } catch {
             // ignore
           }
-          updateBeepToggleUi();
           saveUiState();
           toast(next ? 'Tovush yoqildi.' : 'Tovush o‘chirildi.', 'ok');
           logLine(next ? 'Beep yoqildi.' : 'Beep o‘chirildi.');
         } catch (e) {
-          updateBeepToggleUi();
           toast(`Tovush sozlash xatosi: ${humanError(e)}`, 'err', { ttlMs: 7000 });
           logLine(`Tovush sozlash xatosi: ${humanError(e)}`);
         }
       });
+      updateBeepToggleUi();
     };
     updateBeepToggleUi();
   }
