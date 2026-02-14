@@ -374,12 +374,97 @@ function applyStagger(root) {
   }
 }
 
+function ensureTabIndicator(tabsEl) {
+  if (!tabsEl) return null;
+  let el = tabsEl.querySelector('.tab-indicator');
+  if (el) return el;
+  el = document.createElement('span');
+  el.className = 'tab-indicator';
+  el.setAttribute('aria-hidden', 'true');
+  tabsEl.prepend(el);
+  return el;
+}
+
+function animateTabIndicator(tabsEl, indEl, nextX, nextW, { animate = true } = {}) {
+  if (!tabsEl || !indEl) return;
+
+  const toX = Number.isFinite(Number(nextX)) ? Math.max(0, Math.trunc(nextX)) : 0;
+  const toW = Number.isFinite(Number(nextW)) ? Math.max(0, Math.trunc(nextW)) : 0;
+  if (!toW) {
+    tabsEl.dataset.indReady = '0';
+    return;
+  }
+
+  const fromX = Number(indEl.dataset.x || '0');
+  const fromW = Number(indEl.dataset.w || '0');
+  const hadPrev = tabsEl.dataset.indReady === '1' && fromW > 0;
+
+  // Always set the final state (animation only affects the tween).
+  const applyFinal = () => {
+    indEl.style.transform = `translate3d(${toX}px, 0, 0)`;
+    indEl.style.width = `${toW}px`;
+    indEl.dataset.x = String(toX);
+    indEl.dataset.w = String(toW);
+    tabsEl.dataset.indReady = '1';
+  };
+
+  if (!animate || !hadPrev || PERF_MODE) {
+    applyFinal();
+    return;
+  }
+
+  // "Stretch" animation: expand to cover both segments, then settle.
+  const fromLeft = fromX;
+  const fromRight = fromX + fromW;
+  const toLeft = toX;
+  const toRight = toX + toW;
+  const midLeft = Math.min(fromLeft, toLeft);
+  const midRight = Math.max(fromRight, toRight);
+  const midW = Math.max(0, midRight - midLeft);
+
+  try {
+    if (indEl._anim) indEl._anim.cancel();
+  } catch {
+    // ignore
+  }
+
+  const duration = 520;
+  const a = indEl.animate(
+    [
+      { transform: `translate3d(${fromLeft}px, 0, 0)`, width: `${fromW}px`, offset: 0 },
+      { transform: `translate3d(${midLeft}px, 0, 0)`, width: `${midW}px`, offset: 0.42 },
+      { transform: `translate3d(${toLeft}px, 0, 0)`, width: `${toW}px`, offset: 1 },
+    ],
+    { duration, easing: 'cubic-bezier(0.18, 0.96, 0.18, 1)', fill: 'both' },
+  );
+  indEl._anim = a;
+  a.onfinish = () => applyFinal();
+  a.oncancel = () => {};
+}
+
+function syncTabIndicator(tabsEl, { animate = true } = {}) {
+  if (!tabsEl) return;
+  const ind = ensureTabIndicator(tabsEl);
+  const active = tabsEl.querySelector('button.tab.active');
+  if (!active) {
+    tabsEl.dataset.indReady = '0';
+    return;
+  }
+  animateTabIndicator(tabsEl, ind, active.offsetLeft, active.offsetWidth, { animate });
+}
+
+function syncAllTabIndicators({ animate = true } = {}) {
+  syncTabIndicator($('mainTabs'), { animate });
+  syncTabIndicator($('subTabs'), { animate });
+}
+
 function renderSubTabs(main) {
   const el = $('subTabs');
   if (!el) return;
   const subs = TAB_SCHEMA[main]?.subs || {};
   const cur = activeSubs[main] || DEFAULT_SUBS[main] || firstSub(main);
   const parts = [];
+  parts.push('<span class="tab-indicator" aria-hidden="true"></span>');
   for (const [key, label] of Object.entries(subs)) {
     const active = key === cur ? 'active' : '';
     parts.push(`<button class="tab ${active}" type="button" data-sub="${key}">${label}</button>`);
@@ -468,6 +553,7 @@ function setView(main, sub, { updateHash = true, save = true, scroll = true } = 
   }
 
   renderSubTabs(v.main);
+  syncAllTabIndicators({ animate: true });
 
   if (updateHash) {
     const nextHash = `#${v.main}/${v.sub}`;
@@ -2451,6 +2537,15 @@ function bind() {
     });
   }
 
+  window.addEventListener('resize', () => syncAllTabIndicators({ animate: false }));
+  try {
+    if (document.fonts && document.fonts.ready) {
+      document.fonts.ready.then(() => syncAllTabIndicators({ animate: false })).catch(() => {});
+    }
+  } catch {
+    // ignore
+  }
+
   window.addEventListener('hashchange', () => {
     const v = parseHash();
     if (!v) return;
@@ -3674,6 +3769,7 @@ async function init() {
   const initialMain = fromHash?.main || activeMain;
   const initialSub = fromHash?.sub || activeSubs[initialMain] || DEFAULT_SUBS[initialMain] || firstSub(initialMain);
   setView(initialMain, initialSub, { updateHash: false, save: false, scroll: false });
+  syncAllTabIndicators({ animate: false });
   renderAntennaChoices();
   initRegionUi();
   if (pendingBasicState) applyBasicState(pendingBasicState);

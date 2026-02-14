@@ -214,12 +214,19 @@ body::before {
 }
 
 .tabs {
+  position: relative;
   display: flex;
   align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
+  gap: 0;
+  flex-wrap: nowrap;
   overflow-x: auto;
-  padding-bottom: 2px;
+  padding: 2px;
+  border: 2px solid var(--border);
+  border-radius: 999px;
+  background: var(--panel2);
+  box-shadow: inset 0 0 0 1px rgba(114, 191, 106, 0.08), 0 12px 34px rgba(0, 0, 0, 0.22);
+  scrollbar-width: thin;
+  scroll-behavior: smooth;
 }
 
 .tabs::-webkit-scrollbar {
@@ -227,27 +234,50 @@ body::before {
 }
 
 .tabs::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.14);
+  background: rgba(114, 191, 106, 0.22);
   border-radius: 999px;
+}
+
+.tab-indicator {
+  position: absolute;
+  top: 2px;
+  bottom: 2px;
+  left: 0;
+  width: 0;
+  border-radius: 999px;
+  background:
+    radial-gradient(120% 220% at 20% 30%, rgba(255, 255, 255, 0.16), transparent 50%),
+    linear-gradient(135deg, rgba(114, 191, 106, 0.18), rgba(114, 191, 106, 0.06));
+  box-shadow: 0 0 0 1px rgba(114, 191, 106, 0.28), 0 18px 44px rgba(0, 0, 0, 0.28);
+  transform: translate3d(0, 0, 0);
+  opacity: 0;
+  transition: opacity 0.12s ease;
+  z-index: 1;
+  pointer-events: none;
+}
+
+.tabs[data-ind-ready="1"] .tab-indicator {
+  opacity: 1;
 }
 
 .tab {
   appearance: none;
-  border: 2px solid var(--border);
-  border-radius: var(--radius-sm);
-  padding: 8px 12px;
-  background: var(--panel);
-  color: var(--text);
+  border: 0;
+  border-radius: 999px;
+  padding: 8px 14px;
+  background: transparent;
+  color: var(--muted);
   cursor: pointer;
   font-size: 12px;
-  font-weight: 500;
-  transition: transform 0.08s ease, background 0.18s ease, border-color 0.18s ease, color 0.18s ease, box-shadow 0.18s ease;
+  font-weight: 600;
+  transition: transform 0.08s ease, color 0.18s ease, opacity 0.18s ease;
   position: relative;
+  z-index: 2;
+  white-space: nowrap;
 }
 
 .tab:hover {
-  background: var(--hover);
-  box-shadow: 0 0 0 1px rgba(114, 191, 106, 0.14), 0 10px 22px rgba(0, 0, 0, 0.22);
+  color: var(--text);
 }
 
 .tab:active {
@@ -259,23 +289,32 @@ body::before {
   box-shadow: 0 0 0 3px rgba(114, 191, 106, 0.25);
 }
 
-.tab.active {
-  border-color: var(--accent);
-  background: rgba(114, 191, 106, 0.1);
-  color: var(--accent);
-  font-weight: 600;
-}
-
-.tab.active::after {
+.tab + .tab::before {
   content: '';
   position: absolute;
-  left: 10px;
-  right: 10px;
-  bottom: -6px;
-  height: 2px;
-  border-radius: 999px;
-  background: linear-gradient(90deg, transparent, var(--accent), transparent);
-  opacity: 0.9;
+  left: -1px;
+  top: 10px;
+  bottom: 10px;
+  width: 1px;
+  background: var(--border);
+  opacity: 0.65;
+}
+
+.tab.active + .tab::before,
+.tab + .tab.active::before {
+  opacity: 0.0;
+}
+
+.tab.active {
+  color: var(--text);
+}
+
+:root[data-perf="1"] .tabs {
+  scroll-behavior: auto;
+}
+
+:root[data-perf="1"] .tab-indicator {
+  box-shadow: 0 0 0 1px rgba(114, 191, 106, 0.22);
 }
 
 .status.subtle {
