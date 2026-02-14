@@ -1,0 +1,8 @@
+# Local config / secrets (do not commit)
+Demo/web-localhost/server/local-config.json
+
+# Runtime artifacts
+Demo/web-localhost/logs/
+*.log
+node_modules/
+

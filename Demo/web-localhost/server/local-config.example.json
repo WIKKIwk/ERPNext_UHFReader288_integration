@@ -1,0 +1,48 @@
+{
+  "erp": {
+    "baseUrl": "",
+    "device": "uhf-local",
+    "agentId": "uhf-local",
+    "pushEnabled": false,
+    "rpcEnabled": false,
+    "auth": "",
+    "profiles": {
+      "local": {
+        "baseUrl": "",
+        "device": "uhf-local",
+        "agentId": "uhf-local",
+        "pushEnabled": false,
+        "rpcEnabled": false,
+        "auth": "",
+        "overrideEnv": true
+      }
+    },
+    "activeProfile": "local",
+    "overrideEnv": true
+  },
+  "bridge": {
+    "lastConnectArgs": {
+      "mode": "tcp",
+      "readerType": 4,
+      "ip": "192.168.0.10",
+      "port": 2022,
+      "logSwitch": 0
+    },
+    "lastInventoryArgs": {
+      "ivtType": 0,
+      "memory": 1,
+      "invPwd": "00000000",
+      "qValue": 0,
+      "session": 0,
+      "scanTime": 255,
+      "antennaMask": 1,
+      "tidPtr": 0,
+      "tidLen": 0,
+      "target": 0,
+      "retryCount": 5
+    },
+    "desiredInventory": false,
+    "autoInventory": false
+  }
+}
+
