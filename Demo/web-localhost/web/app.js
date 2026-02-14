@@ -108,8 +108,6 @@ const TAB_SCHEMA = {
       realtime: 'Real-time-inventory',
       tags: 'Taglar / Antenna',
       antenna: 'Antenna bo‘yicha',
-      buffer: 'Buffer operation',
-      fast: 'Fast-mode',
       rw: 'Read/Write Tag',
     },
   },
@@ -2357,8 +2355,6 @@ function bind() {
       setView('c1g2', 'realtime');
     };
   }
-  if ($('btnGotoRealtime2')) $('btnGotoRealtime2').onclick = () => setView('c1g2', 'realtime');
-  if ($('btnGotoRealtime3')) $('btnGotoRealtime3').onclick = () => setView('c1g2', 'realtime');
 
   // Theme toggle
   if ($('themeToggle')) {
