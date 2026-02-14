@@ -75,6 +75,7 @@ function updatePerfButton() {
 
 function setPerfMode(next, { persist = true } = {}) {
   PERF_MODE = Boolean(next);
+  document.documentElement.setAttribute('data-perf', PERF_MODE ? '1' : '0');
   if (persist) {
     try {
       localStorage.setItem(LS_PERF_KEY, PERF_MODE ? '1' : '0');
@@ -145,6 +146,19 @@ function scheduleLogFlush() {
   }, delay);
 }
 
+const bumpLastAt = new WeakMap();
+function bump(el, { minIntervalMs = 250 } = {}) {
+  if (!el) return;
+  const now = Date.now();
+  const last = bumpLastAt.get(el) || 0;
+  if (now - last < minIntervalMs) return;
+  bumpLastAt.set(el, now);
+  el.classList.remove('bump');
+  // Force restart animation.
+  void el.offsetWidth;
+  el.classList.add('bump');
+}
+
 function logLine(msg) {
   const t = new Date().toISOString().replace('T', ' ').replace('Z', '');
   logLines.unshift(`[${t}] ${msg}`);
@@ -162,7 +176,13 @@ function clearLogs() {
 function setText(id, value) {
   const el = $(id);
   if (!el) return;
-  el.textContent = String(value ?? '');
+  const next = String(value ?? '');
+  const prev = el.textContent;
+  if (prev === next) return;
+  el.textContent = next;
+  if (el.classList.contains('digit') || String(el.id || '').startsWith('stat')) {
+    bump(el, { minIntervalMs: PERF_MODE ? 600 : 200 });
+  }
 }
 
 function toast(message, kind = 'ok', { ttlMs = 4500 } = {}) {
@@ -255,9 +275,16 @@ async function apiGet(path) {
 
 function setPill(el, text, kind) {
   if (!el) return;
+  const prevText = el.textContent;
+  const prevKind = el.classList.contains('ok') ? 'ok' : el.classList.contains('warn') ? 'warn' : el.classList.contains('err') ? 'err' : '';
   el.textContent = text;
   el.classList.remove('ok', 'warn', 'err');
   if (kind) el.classList.add(kind);
+  if (prevText !== text || prevKind !== String(kind || '')) {
+    el.classList.remove('ping');
+    void el.offsetWidth;
+    el.classList.add('ping');
+  }
 }
 
 function setBackend(stateOrOnline, details = '') {
@@ -347,8 +374,16 @@ function setView(main, sub, { updateHash = true, save = true, scroll = true } = 
   activeMain = v.main;
   activeSubs = { ...activeSubs, [v.main]: v.sub };
 
+  let shown = null;
   for (const sec of document.querySelectorAll('.module[data-main][data-sub]')) {
-    sec.classList.toggle('hidden', sec.dataset.main !== v.main || sec.dataset.sub !== v.sub);
+    const on = sec.dataset.main === v.main && sec.dataset.sub === v.sub;
+    sec.classList.toggle('hidden', !on);
+    if (on) shown = sec;
+  }
+  if (shown) {
+    shown.classList.remove('reveal-enter');
+    void shown.offsetWidth;
+    shown.classList.add('reveal-enter');
   }
 
   const mainTabs = $('mainTabs');
@@ -3545,6 +3580,8 @@ async function init() {
   const savedTheme = getTheme();
   setTheme(savedTheme);
   setupPerfToggle();
+  // Ensure CSS can react to perf mode immediately.
+  setPerfMode(PERF_MODE, { persist: false });
 
   loadUiState();
   try {
@@ -3585,6 +3622,12 @@ async function init() {
 
   if ($('autoConnect').checked) {
     $('btnConnect').click();
+  }
+
+  try {
+    document.body.classList.add('loaded');
+  } catch {
+    // ignore
   }
 }
 
