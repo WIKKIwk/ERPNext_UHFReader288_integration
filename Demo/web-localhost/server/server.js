@@ -461,6 +461,7 @@ class Bridge {
   constructor({ rootDir }) {
     this.rootDir = rootDir;
     this.proc = null;
+    this.stopPromise = null;
     this.nextId = 1;
     this.pending = new Map();
     this.listeners = new Set();
@@ -495,32 +496,72 @@ class Bridge {
       throw new Error(`Java bridge is not built. Run: ${path.resolve(this.rootDir, 'build-bridge.sh')}`);
     }
 
-    this.proc = spawn('java', javaArgs, {
+    const child = spawn('java', javaArgs, {
       stdio: ['pipe', 'pipe', 'pipe'],
       env: { ...process.env },
     });
+    this.proc = child;
 
-    this.proc.stdout.setEncoding('utf8');
-    this.proc.stdout.on('data', (chunk) => this.#handleStdout(chunk));
+    child.stdout.setEncoding('utf8');
+    child.stdout.on('data', (chunk) => this.#handleStdout(chunk));
 
-    this.proc.stderr.setEncoding('utf8');
-    this.proc.stderr.on('data', (chunk) => {
+    child.stderr.setEncoding('utf8');
+    child.stderr.on('data', (chunk) => {
       this.emit({ type: 'bridge-stderr', message: String(chunk) });
     });
 
-    this.proc.on('exit', (code, signal) => {
+    child.on('exit', (code, signal) => {
       const msg = `Java bridge exited (code=${code}, signal=${signal})`;
-      for (const [, p] of this.pending) p.reject(new Error(msg));
-      this.pending.clear();
-      this.proc = null;
+      if (this.proc === child) {
+        for (const [, p] of this.pending) p.reject(new Error(msg));
+        this.pending.clear();
+        this.proc = null;
+      }
       this.emit({ type: 'bridge-exit', message: msg });
     });
   }
 
-  stop() {
+  async stop({ graceMs = 700, forceMs = 1200 } = {}) {
     if (!this.proc) return;
-    this.proc.kill();
-    this.proc = null;
+    if (this.stopPromise) return await this.stopPromise;
+
+    const proc = this.proc;
+    // Prevent a second process from being spawned while we are stopping this one.
+    this.proc = proc;
+
+    this.stopPromise = new Promise((resolve) => {
+      let done = false;
+      const finish = () => {
+        if (done) return;
+        done = true;
+        if (this.proc === proc) this.proc = null;
+        this.stopPromise = null;
+        resolve();
+      };
+
+      const onExit = () => finish();
+      proc.once('exit', onExit);
+
+      setTimeout(() => {
+        try {
+          proc.kill('SIGTERM');
+        } catch {
+          // ignore
+        }
+      }, 0);
+
+      setTimeout(() => {
+        try {
+          proc.kill('SIGKILL');
+        } catch {
+          // ignore
+        }
+      }, Math.max(0, Number(graceMs) || 0));
+
+      setTimeout(() => finish(), Math.max(0, Number(forceMs) || 0));
+    });
+
+    await this.stopPromise;
   }
 
   #handleStdout(chunk) {
@@ -571,8 +612,14 @@ class Bridge {
     this.start();
     const id = this.nextId++;
     const line = `REQ\t${id}\t${cmd}\t${JSON.stringify(args)}\n`;
+    const proc = this.proc;
 
     return new Promise((resolve, reject) => {
+      if (!proc || !proc.stdin || proc.stdin.destroyed) {
+        reject(new Error('Java bridge is not available'));
+        return;
+      }
+
       const timeoutMs = Number(process.env.BRIDGE_TIMEOUT_MS || 30_000);
       const timeout = setTimeout(() => {
         this.pending.delete(id);
@@ -590,7 +637,13 @@ class Bridge {
         },
       });
 
-      this.proc.stdin.write(line);
+      try {
+        proc.stdin.write(line);
+      } catch (e) {
+        this.pending.delete(id);
+        clearTimeout(timeout);
+        reject(e);
+      }
     });
   }
 }
@@ -780,6 +833,48 @@ function parseSubnetList(raw, { maxSubnets } = {}) {
   return out;
 }
 
+function normalizeHintSubnets(hints, { maxSubnets } = {}) {
+  const maxRaw = Number(maxSubnets);
+  const limit = Number.isFinite(maxRaw) ? Math.max(1, Math.min(8192, Math.trunc(maxRaw))) : 512;
+  const out = [];
+  const seen = new Set();
+
+  const add = (subnet) => {
+    const s = String(subnet || '').trim();
+    if (!s) return;
+    if (seen.has(s)) return;
+    if (out.length >= limit) return;
+    seen.add(s);
+    out.push(s);
+  };
+
+  const feed = (value) => {
+    if (value == null) return;
+    if (Array.isArray(value)) {
+      for (const v of value) feed(v);
+      return;
+    }
+    if (typeof value === 'object') {
+      feed(value.subnet);
+      feed(value.ip);
+      return;
+    }
+    const raw = String(value || '').trim();
+    if (!raw) return;
+    for (const token of raw.split(/[\s,]+/).filter(Boolean)) {
+      if (token.includes('/')) {
+        for (const subnet of parseSubnetList(token, { maxSubnets: limit })) add(subnet);
+      } else if (ipv4Parts(token)) {
+        const subnet = subnetFromIPv4(token);
+        if (subnet) add(subnet);
+      }
+    }
+  };
+
+  feed(hints);
+  return out;
+}
+
 function getDefaultRouteIface() {
   const platform = process.platform;
   if (platform === 'linux') {
@@ -835,7 +930,7 @@ function findDefaultSubnet() {
   return candidates[0]?.subnet || null;
 }
 
-function findCandidateSubnets({ aggressive, maxSubnets } = {}) {
+function findCandidateSubnets({ aggressive, maxSubnets, preferredSubnets } = {}) {
   const aggressiveFlag = typeof aggressive === 'boolean' ? aggressive : envBool('RFID_SCAN_AGGRESSIVE', false);
   const maxRaw = Number.isFinite(Number(maxSubnets))
     ? Number(maxSubnets)
@@ -871,6 +966,15 @@ function findCandidateSubnets({ aggressive, maxSubnets } = {}) {
     }
   };
 
+  // 1) Highest priority: explicit hint subnets (target IPs, stale config, RPC hints).
+  const preferred = normalizeHintSubnets(preferredSubnets, { maxSubnets: maxTotal });
+  for (const subnet of preferred) add(subnet);
+
+  // 2) Next priority: host-provided subnets from env (important in Docker mode).
+  const extraSubnets = parseSubnetList(envStr('RFID_SCAN_SUBNETS', ''), { maxSubnets: maxTotal });
+  for (const subnet of extraSubnets) add(subnet);
+
+  // 3) Fallback: discover from local interfaces.
   const def = getDefaultRouteIface();
   addIface(def);
 
@@ -878,9 +982,6 @@ function findCandidateSubnets({ aggressive, maxSubnets } = {}) {
     if (name === def) continue;
     addIface(name);
   }
-
-  const extraSubnets = parseSubnetList(envStr('RFID_SCAN_SUBNETS', ''), { maxSubnets: maxTotal });
-  for (const subnet of extraSubnets) add(subnet);
 
   return out;
 }
@@ -1193,7 +1294,21 @@ async function scanTcpPortsOnSubnet({ subnet, ports, timeoutMs = 250, concurrenc
   return { subnet, devices, portsTried: list };
 }
 
-async function scanTcpPort({ port, timeoutMs = 250, concurrency = 64, aggressive, maxSubnets } = {}) {
+function collectScanHintSubnets(raw, { maxSubnets } = {}) {
+  if (!raw || typeof raw !== 'object') return [];
+  const hints = [];
+  hints.push(raw?.ip);
+  hints.push(raw?.targetIp);
+  hints.push(raw?.target_ip);
+  hints.push(raw?.subnet);
+  hints.push(raw?.subnets);
+  hints.push(raw?.hintSubnets);
+  hints.push(raw?.hint_subnets);
+  hints.push(raw?.ips);
+  return normalizeHintSubnets(hints, { maxSubnets });
+}
+
+async function scanTcpPort({ port, timeoutMs = 250, concurrency = 64, aggressive, maxSubnets, preferredSubnets } = {}) {
   const tMsRaw = Number(timeoutMs);
   const tMs = Number.isFinite(tMsRaw) ? Math.max(20, Math.min(2000, Math.trunc(tMsRaw))) : 250;
   const concRaw = Number(concurrency);
@@ -1204,7 +1319,7 @@ async function scanTcpPort({ port, timeoutMs = 250, concurrency = 64, aggressive
     ? Number(maxSubnets)
     : envInt('RFID_SCAN_MAX_SUBNETS', aggressiveFlag ? 512 : 256);
   const maxCount = Number.isFinite(maxRaw) ? Math.max(1, Math.min(8192, Math.trunc(maxRaw))) : aggressiveFlag ? 512 : 256;
-  const subnets = findCandidateSubnets({ aggressive: aggressiveFlag, maxSubnets: maxCount });
+  const subnets = findCandidateSubnets({ aggressive: aggressiveFlag, maxSubnets: maxCount, preferredSubnets });
   if (!subnets.length) return { subnet: null, devices: [], subnetsTried: [] };
 
   for (const subnet of subnets) {
@@ -1216,7 +1331,7 @@ async function scanTcpPort({ port, timeoutMs = 250, concurrency = 64, aggressive
   return { subnet: subnets[0] || null, devices: [], subnetsTried: subnets };
 }
 
-async function scanTcpPorts({ ports, timeoutMs = 250, concurrency = 64, aggressive, maxSubnets } = {}) {
+async function scanTcpPorts({ ports, timeoutMs = 250, concurrency = 64, aggressive, maxSubnets, preferredSubnets } = {}) {
   const list = normalizePorts(ports);
   if (!list.length) return { subnet: null, devices: [], portsTried: [] };
 
@@ -1230,7 +1345,7 @@ async function scanTcpPorts({ ports, timeoutMs = 250, concurrency = 64, aggressi
     ? Number(maxSubnets)
     : envInt('RFID_SCAN_MAX_SUBNETS', aggressiveFlag ? 512 : 256);
   const maxCount = Number.isFinite(maxRaw) ? Math.max(1, Math.min(8192, Math.trunc(maxRaw))) : aggressiveFlag ? 512 : 256;
-  const subnets = findCandidateSubnets({ aggressive: aggressiveFlag, maxSubnets: maxCount });
+  const subnets = findCandidateSubnets({ aggressive: aggressiveFlag, maxSubnets: maxCount, preferredSubnets });
   if (!subnets.length) return { subnet: null, devices: [], portsTried: list, subnetsTried: [] };
 
   for (const subnet of subnets) {
@@ -1337,6 +1452,7 @@ function main() {
   let lastTagAt = 0;
   const desired = { connected: false, inventory: false };
   let inventoryRecoverPromise = null;
+  let bridgeRestartPromise = null;
   let lastAutoRecoverAt = 0;
   let lastErpSendAt = 0;
   let lastHeartbeatWarnAt = 0;
@@ -1898,25 +2014,35 @@ function main() {
   }
 
   async function restartJavaBridge({ reason = '' } = {}) {
-    const args = lastConnectArgs || (await refreshLastConnectArgs());
-    bridge.stop();
-    await sleep(250);
+    if (bridgeRestartPromise) return await bridgeRestartPromise;
 
-    if (args) {
-      await bridge.request('CONNECT', args);
-      if (lastInvParams) {
-        try {
-          await bridge.request('SET_INV_PARAM', lastInvParams);
-        } catch {
-          // ignore
+    bridgeRestartPromise = (async () => {
+      const args = lastConnectArgs || (await refreshLastConnectArgs());
+      await bridge.stop();
+      await sleep(120);
+
+      if (args) {
+        await bridge.request('CONNECT', args);
+        if (lastInvParams) {
+          try {
+            await bridge.request('SET_INV_PARAM', lastInvParams);
+          } catch {
+            // ignore
+          }
         }
       }
-    }
+
+      try {
+        sseBroadcast('log', { level: 'warn', message: `Java bridge restart OK${reason ? ` (${reason})` : ''}` });
+      } catch {
+        // ignore
+      }
+    })();
 
     try {
-      sseBroadcast('log', { level: 'warn', message: `Java bridge restart OK${reason ? ` (${reason})` : ''}` });
-    } catch {
-      // ignore
+      return await bridgeRestartPromise;
+    } finally {
+      bridgeRestartPromise = null;
     }
   }
 
@@ -2101,9 +2227,24 @@ function main() {
           : undefined;
       const maxSubnetsRaw = Number(a?.maxSubnets ?? a?.max_subnets);
       const maxSubnets = Number.isFinite(maxSubnetsRaw) ? Math.max(1, Math.min(8192, Math.trunc(maxSubnetsRaw))) : undefined;
+      const hintSubnets = collectScanHintSubnets(a, { maxSubnets });
       return list.length <= 1
-        ? await scanTcpPort({ port: list[0] || DEFAULT_TCP_PORTS[0], timeoutMs, concurrency, aggressive, maxSubnets })
-        : await scanTcpPorts({ ports: list, timeoutMs, concurrency, aggressive, maxSubnets });
+        ? await scanTcpPort({
+          port: list[0] || DEFAULT_TCP_PORTS[0],
+          timeoutMs,
+          concurrency,
+          aggressive,
+          maxSubnets,
+          preferredSubnets: hintSubnets,
+        })
+        : await scanTcpPorts({
+          ports: list,
+          timeoutMs,
+          concurrency,
+          aggressive,
+          maxSubnets,
+          preferredSubnets: hintSubnets,
+        });
     }
 
     if (c === 'ANTENNA_SCAN') {
@@ -2277,7 +2418,7 @@ function main() {
       }
 
       if (req.method === 'GET' && urlObj.pathname === '/api/status') {
-        const status = decorateStatus(await bridge.request('STATUS', {}));
+        const status = decorateStatus((await getBridgeStatusSafe()) || {});
         return json(res, 200, { ok: true, status });
       }
 
@@ -2328,10 +2469,25 @@ function main() {
             : undefined;
         const maxSubnetsRaw = Number(body?.maxSubnets ?? body?.max_subnets);
         const maxSubnets = Number.isFinite(maxSubnetsRaw) ? Math.max(1, Math.min(8192, Math.trunc(maxSubnetsRaw))) : undefined;
+        const hintSubnets = collectScanHintSubnets(body, { maxSubnets });
         const result =
           list.length <= 1
-            ? await scanTcpPort({ port: list[0] || DEFAULT_TCP_PORTS[0], timeoutMs, concurrency, aggressive, maxSubnets })
-            : await scanTcpPorts({ ports: list, timeoutMs, concurrency, aggressive, maxSubnets });
+            ? await scanTcpPort({
+              port: list[0] || DEFAULT_TCP_PORTS[0],
+              timeoutMs,
+              concurrency,
+              aggressive,
+              maxSubnets,
+              preferredSubnets: hintSubnets,
+            })
+            : await scanTcpPorts({
+              ports: list,
+              timeoutMs,
+              concurrency,
+              aggressive,
+              maxSubnets,
+              preferredSubnets: hintSubnets,
+            });
         return json(res, 200, { ok: true, result });
       }
 
@@ -2359,7 +2515,55 @@ function main() {
           }
           return json(res, 200, { ok: true, result: { already: true, status } });
         }
-        const result = await bridge.request('CONNECT', body);
+        let connectPayload = body;
+        let result;
+        try {
+          result = await bridge.request('CONNECT', connectPayload);
+        } catch (firstErr) {
+          const normalized = normalizeConnectArgs(body);
+          if (normalized.mode !== 'tcp') throw firstErr;
+
+          const ports = normalizePorts([normalized.port, ...DEFAULT_TCP_PORTS]);
+          const list = ports.length ? ports : DEFAULT_TCP_PORTS;
+          const maxSubnets = 128;
+          const hintSubnets = normalizeHintSubnets(
+            [subnetFromIPv4(normalized.ip), ...buildTcpCandidateList(normalized).map((d) => subnetFromIPv4(d?.ip))],
+            { maxSubnets },
+          );
+          const scan =
+            list.length <= 1
+              ? await scanTcpPort({
+                port: list[0] || DEFAULT_TCP_PORTS[0],
+                timeoutMs: 180,
+                concurrency: 96,
+                aggressive: true,
+                maxSubnets,
+                preferredSubnets: hintSubnets,
+              })
+              : await scanTcpPorts({
+                ports: list,
+                timeoutMs: 180,
+                concurrency: 96,
+                aggressive: true,
+                maxSubnets,
+                preferredSubnets: hintSubnets,
+              });
+          const devices = Array.isArray(scan?.devices) ? scan.devices : [];
+          if (!devices.length) throw firstErr;
+
+          const found = devices.find((d) => d && d.ip === normalized.ip) || devices[0];
+          if (!found?.ip) throw firstErr;
+          connectPayload = { ...normalized, ip: String(found.ip), port: Number(found.port || normalized.port) };
+          result = await bridge.request('CONNECT', connectPayload);
+          try {
+            sseBroadcast('log', {
+              level: 'info',
+              message: `Auto-find ishladi: ${connectPayload.ip}:${connectPayload.port}`,
+            });
+          } catch {
+            // ignore
+          }
+        }
         desired.connected = true;
         try {
           await refreshLastConnectArgs();
@@ -2669,6 +2873,13 @@ function main() {
                   : 250;
                 const scanConcRaw = Number(envInt('RFID_AUTO_SCAN_CONCURRENCY', envInt('RFID_SCAN_CONCURRENCY', 64)));
                 const scanConcurrency = Number.isFinite(scanConcRaw) ? Math.max(1, Math.min(256, Math.trunc(scanConcRaw))) : 64;
+                const hintSubnets = normalizeHintSubnets(
+                  [
+                    connectArgs.ip ? subnetFromIPv4(connectArgs.ip) : '',
+                    ...buildTcpCandidateList(connectArgs).map((d) => subnetFromIPv4(d?.ip)),
+                  ],
+                  { maxSubnets: scanMaxSubnets },
+                );
                 const scan =
                   list.length <= 1
                     ? await scanTcpPort({
@@ -2677,6 +2888,7 @@ function main() {
                       concurrency: scanConcurrency,
                       aggressive: aggressiveNetworkScan,
                       maxSubnets: scanMaxSubnets,
+                      preferredSubnets: hintSubnets,
                     })
                     : await scanTcpPorts({
                       ports: list,
@@ -2684,9 +2896,15 @@ function main() {
                       concurrency: scanConcurrency,
                       aggressive: aggressiveNetworkScan,
                       maxSubnets: scanMaxSubnets,
+                      preferredSubnets: hintSubnets,
                     });
                 const devices = Array.isArray(scan?.devices) ? scan.devices : [];
-                if (!devices.length) throw new Error(`TCP scan: qurilma topilmadi (${scan?.subnet || 'subnet yo‘q'})`);
+                if (!devices.length) {
+                  const tried = Array.isArray(scan?.subnetsTried) && scan.subnetsTried.length
+                    ? scan.subnetsTried.join(', ')
+                    : scan?.subnet || 'subnet yo‘q';
+                  throw new Error(`TCP scan: qurilma topilmadi (tekshirildi: ${tried})`);
+                }
 
                 const found = devices.find((d) => d && d.ip === connectArgs.ip) || devices[0];
                 const nextIp = String(found?.ip || '').trim();

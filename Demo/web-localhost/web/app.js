@@ -399,6 +399,7 @@ function saveUiState() {
     conn: getConnArgs(),
     inv: getInvParams(),
     invNoRepeat: $('invNoRepeat')?.checked ?? false,
+    invSessionNoRepeat: $('invSessionNoRepeat')?.checked ?? true,
     basic: getBasicParams(),
     rw: getRwParams(),
     autoConnect: $('autoConnect').checked,
@@ -476,6 +477,9 @@ function loadUiState() {
     if (state?.invAutoClear !== undefined && $('invAutoClear')) $('invAutoClear').checked = Boolean(state.invAutoClear);
     if (state?.invShowPhase !== undefined && $('invShowPhase')) $('invShowPhase').checked = Boolean(state.invShowPhase);
     if (state?.invNoRepeat !== undefined && $('invNoRepeat')) $('invNoRepeat').checked = Boolean(state.invNoRepeat);
+    if (state?.invSessionNoRepeat !== undefined && $('invSessionNoRepeat')) {
+      $('invSessionNoRepeat').checked = Boolean(state.invSessionNoRepeat);
+    }
     if (state?.tagFilter !== undefined && $('tagFilter')) $('tagFilter').value = String(state.tagFilter || '');
     if (state?.tagView && typeof state.tagView === 'object') {
       if (state.tagView.mode !== undefined && $('tagViewMode')) $('tagViewMode').value = String(state.tagView.mode || 'epc');
@@ -516,6 +520,7 @@ let tagTableRenderTimer = 0;
 let invOnceWaiter = null;
 let invDesired = false;
 let invPendingSince = 0;
+let invSessionSeen = new Set();
 
 let currentStatus = {
   connected: false,
@@ -1239,6 +1244,14 @@ function waitForInvOnceTag({ timeoutMs = 8000 } = {}) {
   });
 }
 
+function resetInvSessionSeen() {
+  invSessionSeen.clear();
+}
+
+function seedInvSessionSeenFromTags() {
+  invSessionSeen = new Set(tags.keys());
+}
+
 function upsertTag(tag) {
   const k = compactHex(tag.epcId || '');
   if (!k) return;
@@ -1257,6 +1270,9 @@ function upsertTag(tag) {
   }
 
   const noRepeat = Boolean($('invNoRepeat')?.checked);
+  const sessionNoRepeat = Boolean($('invSessionNoRepeat')?.checked ?? true);
+  if (noRepeat && sessionNoRepeat && invSessionSeen.has(k)) return;
+
   const now = Date.now();
   const ant = Number(tag.antId);
   const antKey = Number.isInteger(ant) && ant > 0 ? String(ant) : '';
@@ -1306,6 +1322,8 @@ function upsertTag(tag) {
 
     tags.set(k, next);
   }
+
+  if (noRepeat && sessionNoRepeat) invSessionSeen.add(k);
 
   scheduleTagTableRender();
   scheduleTagViewRender();
@@ -2236,6 +2254,7 @@ async function refreshStatus() {
 }
 
 function applyStatus(st) {
+  const prevInvActive = Boolean(invDesired || currentStatus.inventoryStarted);
   currentStatus = { ...currentStatus, ...(st || {}) };
   if (typeof st?.desiredInventory === 'boolean') {
     invDesired = st.desiredInventory;
@@ -2260,6 +2279,7 @@ function applyStatus(st) {
 
   const invRunning = Boolean(currentStatus.inventoryStarted);
   const invActive = invDesired || invRunning;
+  if (invActive && !prevInvActive) resetInvSessionSeen();
   setInventory(invDesired, invRunning, currentStatus.connected);
 
   if (invActive && !invStartedAt) {
@@ -2375,6 +2395,7 @@ function bind() {
     'invRetryCount',
     'invAutoClear',
     'invNoRepeat',
+    'invSessionNoRepeat',
     'invShowPhase',
     'tagFilter',
     'tidPtr',
@@ -2399,7 +2420,16 @@ function bind() {
       if (id === 'sameFre') syncRegionConstraints({ source: 'same' });
       if (id === 'invPwd') $('invPwd').value = compactHex($('invPwd').value).slice(0, 8).padStart(8, '0');
       if (id === 'invShowPhase') renderTags();
-      if (id === 'invNoRepeat') scheduleTagViewRender();
+      if (id === 'invNoRepeat' || id === 'invSessionNoRepeat') {
+        const sessionNoRepeat = Boolean($('invSessionNoRepeat')?.checked ?? true);
+        const noRepeat = Boolean($('invNoRepeat')?.checked);
+        if (noRepeat && sessionNoRepeat) {
+          seedInvSessionSeenFromTags();
+        } else {
+          resetInvSessionSeen();
+        }
+        scheduleTagViewRender();
+      }
       saveUiState();
     });
   }
@@ -2682,6 +2712,7 @@ function bind() {
         await waitForPowerCooldown();
         const invParams = getInvParams();
         validateInvParams(invParams);
+        resetInvSessionSeen();
 
         if ($('invAutoClear')?.checked) {
           tags.clear();
@@ -2723,6 +2754,7 @@ function bind() {
           validateInvParams(invParams);
 
           if (!wasRunning) {
+            resetInvSessionSeen();
             await api('/api/inventory/params', invParams);
             await api('/api/inventory/start', {});
             startedHere = true;
@@ -2910,6 +2942,7 @@ function bind() {
 
   $('btnInvClear').onclick = () => {
     tags.clear();
+    resetInvSessionSeen();
     totalReads = 0;
     selectedEpc = '';
     invStartedAt = 0;

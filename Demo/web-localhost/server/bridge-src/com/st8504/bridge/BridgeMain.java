@@ -1,11 +1,15 @@
 package com.st8504.bridge;
 
 import java.io.BufferedReader;
+import java.io.BufferedWriter;
 import java.io.InputStreamReader;
+import java.io.OutputStreamWriter;
 import java.lang.reflect.Field;
 import java.lang.reflect.InvocationHandler;
 import java.lang.reflect.Method;
 import java.lang.reflect.Proxy;
+import java.net.InetSocketAddress;
+import java.net.Socket;
 import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
 import java.util.Map;
@@ -16,6 +20,11 @@ public final class BridgeMain {
   private Object reader; // com.rfid.trans.UHFLib
   private Object tagCallbackProxy; // com.rfid.trans.TagCallback
   private boolean inventoryStarted = false;
+  private boolean simLanMode = false;
+  private Socket simSocket = null;
+  private BufferedReader simReader = null;
+  private BufferedWriter simWriter = null;
+  private Thread simReadThread = null;
 
   private Map<String, Object> lastConnectArgs = null;
 
@@ -55,8 +64,9 @@ public final class BridgeMain {
   private Object dispatch(String cmd, Map<String, Object> args) throws Exception {
     if ("STATUS".equals(cmd)) {
       Map<String, Object> st = new HashMap<String, Object>();
-      st.put("connected", Boolean.valueOf(reader != null));
+      st.put("connected", Boolean.valueOf(reader != null || simLanMode));
       st.put("inventoryStarted", Boolean.valueOf(inventoryStarted));
+      st.put("simLanMode", Boolean.valueOf(simLanMode));
       st.put("lastConnectArgs", lastConnectArgs == null ? null : lastConnectArgs);
       return st;
     }
@@ -86,7 +96,7 @@ public final class BridgeMain {
         mode = "tcp";
       }
 
-      if (reader != null && lastConnectArgs != null) {
+      if ((reader != null || simLanMode) && lastConnectArgs != null) {
         if (sameConnectArgs(lastConnectArgs, mode, addr, value, baud, readerType)) {
           Map<String, Object> resp = new HashMap<String, Object>();
           resp.put("rc", Integer.valueOf(0));
@@ -97,6 +107,18 @@ public final class BridgeMain {
       }
 
       disconnectInternal();
+
+      if ("tcp".equals(mode) && isLanSimEnabled()) {
+        connectSimLan(addr, value);
+        this.lastConnectArgs = new HashMap<String, Object>();
+        lastConnectArgs.put("mode", mode);
+        lastConnectArgs.put("ip", addr);
+        lastConnectArgs.put("port", Integer.valueOf(value));
+        lastConnectArgs.put("readerType", Integer.valueOf(readerType));
+        lastConnectArgs.put("logSwitch", Integer.valueOf(logSwitch));
+        sendEvent("STATUS", jsonObj("connected", Boolean.TRUE, "simLanMode", Boolean.TRUE));
+        return jsonObj("rc", Integer.valueOf(0), "sim", Boolean.TRUE);
+      }
 
       // Enable vendor debug logs only when requested (to avoid flooding the UI).
       try {
@@ -160,6 +182,7 @@ public final class BridgeMain {
     }
 
     requireConnected();
+    if (simLanMode) return dispatchSimCommand(cmd, args);
 
     if ("SET_INV_PARAM".equals(cmd)) {
       int ivtType = intv(args.get("ivtType"), 0);
@@ -455,7 +478,218 @@ public final class BridgeMain {
   }
 
   private void requireConnected() throws Exception {
-    if (reader == null) throw new Exception("Not connected");
+    if (reader == null && !simLanMode) throw new Exception("Not connected");
+  }
+
+  private static boolean isLanSimEnabled() {
+    String raw = System.getenv("RFID_LAN_SIM_ENABLED");
+    if (raw == null) return false;
+    String s = raw.trim().toLowerCase();
+    if (s.isEmpty()) return false;
+    return "1".equals(s)
+        || "true".equals(s)
+        || "yes".equals(s)
+        || "y".equals(s)
+        || "on".equals(s)
+        || "enable".equals(s)
+        || "enabled".equals(s);
+  }
+
+  private void connectSimLan(String ip, int port) throws Exception {
+    Socket sock = new Socket();
+    sock.connect(new InetSocketAddress(ip, port), 1500);
+    sock.setTcpNoDelay(true);
+
+    this.simSocket = sock;
+    this.simReader = new BufferedReader(new InputStreamReader(sock.getInputStream(), StandardCharsets.UTF_8));
+    this.simWriter = new BufferedWriter(new OutputStreamWriter(sock.getOutputStream(), StandardCharsets.UTF_8));
+    this.simLanMode = true;
+    this.inventoryStarted = false;
+    sendSimCmd("HELLO");
+  }
+
+  private synchronized void sendSimCmd(String cmd) throws Exception {
+    if (simWriter == null) throw new Exception("SIM socket writer yo'q");
+    simWriter.write(cmd);
+    simWriter.write("\n");
+    simWriter.flush();
+  }
+
+  private synchronized void startSimReadLoop() throws Exception {
+    if (!simLanMode) throw new Exception("SIM LAN rejim yoqilmagan");
+    sendSimCmd("START");
+    if (simReadThread != null && simReadThread.isAlive()) return;
+
+    simReadThread =
+        new Thread(
+            () -> {
+              try {
+                while (simLanMode && inventoryStarted && simReader != null) {
+                  String line = simReader.readLine();
+                  if (line == null) throw new Exception("SIM reader socket yopildi");
+                  line = line.trim();
+                  if (line.isEmpty()) continue;
+
+                  if (line.startsWith("TAG ")) {
+                    emitSimTag(line.substring(4));
+                    continue;
+                  }
+                  if (line.startsWith("{") && line.endsWith("}")) {
+                    Map<String, Object> evt = parseFlatJsonObject(line);
+                    String epc = str(evt.get("epc"), str(evt.get("epcId"), ""));
+                    emitSimTag(epc);
+                    continue;
+                  }
+                  if ("READ_OVER".equalsIgnoreCase(line)) {
+                    inventoryStarted = false;
+                    sendEvent("STATUS", jsonObj("inventoryStarted", Boolean.FALSE, "simLanMode", Boolean.TRUE));
+                    sendEvent("READ_OVER", jsonObj("ok", Boolean.TRUE));
+                    continue;
+                  }
+                  if (line.startsWith("ERR")) {
+                    sendEvent("LOG", jsonObj("level", "warn", "message", "SIM LAN: " + line));
+                  }
+                }
+              } catch (Exception e) {
+                if (simLanMode) {
+                  inventoryStarted = false;
+                  sendEvent("STATUS", jsonObj("inventoryStarted", Boolean.FALSE, "simLanMode", Boolean.TRUE));
+                  sendEvent("LOG", jsonObj("level", "warn", "message", "SIM LAN read error: " + e.getMessage()));
+                }
+              }
+            },
+            "bridge-sim-lan-read");
+    simReadThread.setDaemon(true);
+    simReadThread.start();
+  }
+
+  private synchronized void stopSimReadLoop() {
+    if (!simLanMode) return;
+    try {
+      sendSimCmd("STOP");
+    } catch (Exception ignored) {
+    }
+    inventoryStarted = false;
+  }
+
+  private static String normalizeEpcHex(String raw) {
+    if (raw == null) return "";
+    String s = raw.trim().toUpperCase();
+    StringBuilder sb = new StringBuilder(s.length());
+    for (int i = 0; i < s.length(); i++) {
+      char c = s.charAt(i);
+      if ((c >= '0' && c <= '9') || (c >= 'A' && c <= 'F')) sb.append(c);
+    }
+    return sb.toString();
+  }
+
+  private void emitSimTag(String rawEpc) {
+    String epc = normalizeEpcHex(rawEpc);
+    if (epc.isEmpty()) return;
+    sendEvent(
+        "TAG",
+        jsonObj(
+            "epcId",
+            epc,
+            "memId",
+            "",
+            "rssi",
+            Integer.valueOf(-50),
+            "antId",
+            Integer.valueOf(1),
+            "phaseBegin",
+            Integer.valueOf(0),
+            "phaseEnd",
+            Integer.valueOf(0),
+            "freqKhz",
+            Integer.valueOf(0),
+            "devName",
+            "SIM-LAN-UHF"));
+  }
+
+  private Object dispatchSimCommand(String cmd, Map<String, Object> args) throws Exception {
+    if ("SET_INV_PARAM".equals(cmd)) return jsonObj("rc", Integer.valueOf(0), "sim", Boolean.TRUE);
+
+    if ("START_READ".equals(cmd)) {
+      if (inventoryStarted) return jsonObj("rc", Integer.valueOf(0), "already", Boolean.TRUE, "sim", Boolean.TRUE);
+      inventoryStarted = true;
+      startSimReadLoop();
+      sendEvent("STATUS", jsonObj("inventoryStarted", Boolean.TRUE, "simLanMode", Boolean.TRUE));
+      return jsonObj("rc", Integer.valueOf(0), "sim", Boolean.TRUE);
+    }
+
+    if ("STOP_READ".equals(cmd)) {
+      stopSimReadLoop();
+      sendEvent("STATUS", jsonObj("inventoryStarted", Boolean.FALSE, "simLanMode", Boolean.TRUE));
+      return jsonObj("ok", Boolean.TRUE, "rc", Integer.valueOf(0), "sim", Boolean.TRUE);
+    }
+
+    if ("READ".equals(cmd)) return jsonObj("data", null, "sim", Boolean.TRUE);
+    if ("WRITE".equals(cmd)) return jsonObj("rc", Integer.valueOf(0), "sim", Boolean.TRUE);
+    if ("SET_POWER".equals(cmd)) return jsonObj("rc", Integer.valueOf(0), "sim", Boolean.TRUE);
+    if ("SET_ANT_POWER".equals(cmd)) return jsonObj("rc", Integer.valueOf(0), "sim", Boolean.TRUE);
+    if ("SET_REGION".equals(cmd)) return jsonObj("rc", Integer.valueOf(0), "sim", Boolean.TRUE);
+    if ("SET_BEEP".equals(cmd)) return jsonObj("rc", Integer.valueOf(0), "sim", Boolean.TRUE);
+    if ("SET_RETRY".equals(cmd)) return jsonObj("rc", Integer.valueOf(0), "times", Integer.valueOf(3), "sim", Boolean.TRUE);
+    if ("SET_DRM".equals(cmd)) return jsonObj("rc", Integer.valueOf(0), "sim", Boolean.TRUE);
+    if ("SET_CHECK_ANT".equals(cmd)) return jsonObj("rc", Integer.valueOf(0), "sim", Boolean.TRUE);
+    if ("SET_RELAY".equals(cmd)) return jsonObj("rc", Integer.valueOf(0), "sim", Boolean.TRUE);
+
+    if ("GET_RETRY".equals(cmd)) return jsonObj("rc", Integer.valueOf(0), "times", Integer.valueOf(3), "sim", Boolean.TRUE);
+    if ("GET_ANT_POWER".equals(cmd))
+      return jsonObj("powers", new int[] {30}, "raw", new int[] {30}, "count", Integer.valueOf(1), "sim", Boolean.TRUE);
+
+    if ("MEASURE_RETURN_LOSS".equals(cmd))
+      return jsonObj(
+          "rc",
+          Integer.valueOf(0),
+          "freqKhz",
+          Integer.valueOf(intv(args.get("freqKhz"), 902750)),
+          "ant",
+          Integer.valueOf(intv(args.get("ant"), 1)),
+          "returnLoss",
+          Integer.valueOf(18),
+          "sim",
+          Boolean.TRUE);
+
+    if ("GPIO".equals(cmd)) {
+      String op = str(args.get("op"), "get");
+      if ("set".equalsIgnoreCase(op)) return jsonObj("rc", Integer.valueOf(0), "sim", Boolean.TRUE);
+      return jsonObj("rc", Integer.valueOf(0), "raw", "00", "sim", Boolean.TRUE);
+    }
+
+    if ("GET_INFO".equals(cmd))
+      return jsonObj(
+          "rc",
+          Integer.valueOf(0),
+          "deviceId",
+          "SIM-LAN-UHF",
+          "firmware",
+          "SIM-LAN-1.0",
+          "versionMajor",
+          Integer.valueOf(1),
+          "versionMinor",
+          Integer.valueOf(0),
+          "readerType",
+          Integer.valueOf(16),
+          "readerTypeHex",
+          "10",
+          "powerDbm",
+          Integer.valueOf(30),
+          "band",
+          Integer.valueOf(0),
+          "minIdx",
+          Integer.valueOf(0),
+          "maxIdx",
+          Integer.valueOf(0),
+          "beep",
+          Integer.valueOf(0),
+          "ant",
+          Integer.valueOf(1),
+          "sim",
+          Boolean.TRUE);
+
+    return jsonObj("rc", Integer.valueOf(0), "sim", Boolean.TRUE);
   }
 
   private boolean sameConnectArgs(Map<String, Object> last, String mode, String addr, int value, int baud, int readerType) {
@@ -479,6 +713,31 @@ public final class BridgeMain {
   }
 
   private void disconnectInternal() {
+    if (simLanMode) {
+      try {
+        stopSimReadLoop();
+      } catch (Exception ignored) {
+      }
+      try {
+        if (simReader != null) simReader.close();
+      } catch (Exception ignored) {
+      }
+      try {
+        if (simWriter != null) simWriter.close();
+      } catch (Exception ignored) {
+      }
+      try {
+        if (simSocket != null) simSocket.close();
+      } catch (Exception ignored) {
+      }
+      simReadThread = null;
+      simReader = null;
+      simWriter = null;
+      simSocket = null;
+      simLanMode = false;
+      inventoryStarted = false;
+    }
+
     if (reader == null) return;
     try {
       safeInvoke(reader, "StopRead");
