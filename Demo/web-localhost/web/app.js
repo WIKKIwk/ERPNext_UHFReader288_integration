@@ -345,6 +345,35 @@ function normalizeView(main, sub) {
   return { main: m, sub: s };
 }
 
+let viewTransitionToken = 0;
+function computeViewDir(prev, next) {
+  try {
+    if (!prev || !next) return 'dir-fwd';
+    if (prev.main !== next.main) {
+      const a = MAIN_TABS.indexOf(prev.main);
+      const b = MAIN_TABS.indexOf(next.main);
+      return b >= a ? 'dir-fwd' : 'dir-back';
+    }
+    const subs = Object.keys(TAB_SCHEMA[prev.main]?.subs || {});
+    const a = subs.indexOf(prev.sub);
+    const b = subs.indexOf(next.sub);
+    return b >= a ? 'dir-fwd' : 'dir-back';
+  } catch {
+    return 'dir-fwd';
+  }
+}
+
+function applyStagger(root) {
+  if (!root) return;
+  const els = root.querySelectorAll('.panel, .digit-card, .table-wrap, .output, .logs, .stat');
+  let i = 0;
+  for (const el of els) {
+    el.classList.add('stagger-item');
+    el.style.setProperty('--stagger-i', String(i));
+    i += 1;
+  }
+}
+
 function renderSubTabs(main) {
   const el = $('subTabs');
   if (!el) return;
@@ -370,20 +399,63 @@ function parseHash() {
 }
 
 function setView(main, sub, { updateHash = true, save = true, scroll = true } = {}) {
+  const prevView = { main: activeMain, sub: activeSubs[activeMain] || DEFAULT_SUBS[activeMain] || firstSub(activeMain) };
   const v = normalizeView(String(main || ''), String(sub || ''));
   activeMain = v.main;
   activeSubs = { ...activeSubs, [v.main]: v.sub };
 
-  let shown = null;
-  for (const sec of document.querySelectorAll('.module[data-main][data-sub]')) {
-    const on = sec.dataset.main === v.main && sec.dataset.sub === v.sub;
-    sec.classList.toggle('hidden', !on);
-    if (on) shown = sec;
-  }
-  if (shown) {
-    shown.classList.remove('reveal-enter');
-    void shown.offsetWidth;
-    shown.classList.add('reveal-enter');
+  const nextShown = document.querySelector(`.module[data-main="${v.main}"][data-sub="${v.sub}"]`);
+  const prevShown = document.querySelector('.module[data-main][data-sub]:not(.hidden)');
+
+  const loaded = Boolean(document.body && document.body.classList.contains('loaded'));
+  const allowFancy = loaded && !PERF_MODE;
+  const dir = computeViewDir(prevView, v);
+
+  if (!allowFancy || !prevShown || !nextShown || prevShown === nextShown) {
+    let shown = null;
+    for (const sec of document.querySelectorAll('.module[data-main][data-sub]')) {
+      const on = sec.dataset.main === v.main && sec.dataset.sub === v.sub;
+      sec.classList.toggle('hidden', !on);
+      if (on) shown = sec;
+    }
+    if (shown) {
+      shown.classList.remove('reveal-enter');
+      void shown.offsetWidth;
+      shown.classList.add('reveal-enter');
+    }
+  } else {
+    const token = (viewTransitionToken += 1);
+
+    // Keep only prev+next visible during the swap.
+    for (const sec of document.querySelectorAll('.module[data-main][data-sub]')) {
+      const keep = sec === prevShown || sec === nextShown;
+      if (!keep) sec.classList.add('hidden');
+    }
+
+    // Prep next module.
+    nextShown.classList.remove('hidden');
+    nextShown.classList.remove('reveal-enter', 'trans-in', 'trans-out', 'dir-fwd', 'dir-back');
+    prevShown.classList.remove('reveal-enter', 'trans-in', 'trans-out', 'dir-fwd', 'dir-back');
+    applyStagger(nextShown);
+
+    // Start animations.
+    void nextShown.offsetWidth;
+    prevShown.classList.add('trans-out', dir);
+    nextShown.classList.add('trans-in', dir);
+
+    const done = () => {
+      if (token !== viewTransitionToken) return;
+      prevShown.classList.remove('trans-out', 'dir-fwd', 'dir-back');
+      nextShown.classList.remove('trans-in', 'dir-fwd', 'dir-back');
+      prevShown.classList.add('hidden');
+      // Ensure we end in a clean state if something toggled during the animation.
+      for (const sec of document.querySelectorAll('.module[data-main][data-sub]')) {
+        const on = sec.dataset.main === v.main && sec.dataset.sub === v.sub;
+        sec.classList.toggle('hidden', !on);
+      }
+    };
+
+    window.setTimeout(done, 520);
   }
 
   const mainTabs = $('mainTabs');
